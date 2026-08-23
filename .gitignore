@@ -1,0 +1,48 @@
+# Dependências
+node_modules/
+
+# Variáveis de ambiente e credenciais
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+google-application-credentials*.json
+
+# Logs, caches e temporários
+*.log
+*.tmp
+*.temp
+*.bak
+.cache/
+.firebase/
+.gcloud-reconciliation/
+
+# Artefatos gerados e relatórios operacionais
+reports/
+graphify-out/
+coverage/
+dist/
+build/
+
+# Snapshots e dumps locais
+*snapshot*.json
+snapshots/
+
+# Sistema operacional e editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Arquivos locais do Firebase Emulator Suite
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Manifestos gerados de homologação
+*.hml-build-manifest.json

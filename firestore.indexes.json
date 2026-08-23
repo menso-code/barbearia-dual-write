@@ -1,0 +1,39 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "barbeiros",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "email_acesso", "order": "ASCENDING" },
+        { "fieldPath": "ativo", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "barbeiro_id", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" },
+        { "fieldPath": "horario", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bloqueios",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "barbeiro_id", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "ASCENDING" },
+        { "fieldPath": "inicio", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agendamentos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cliente_id", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

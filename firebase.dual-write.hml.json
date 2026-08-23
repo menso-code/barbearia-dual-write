@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22"
+  },
+  "hosting": {
+    "site": "teste-483f6",
+    "public": "public-hml",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  },
+  "firestore": {
+    "rules": "firestore.dual-write.hml.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

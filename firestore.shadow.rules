@@ -1,0 +1,236 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    function possuiMapeamento() {
+      return autenticado()
+        && exists(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid));
+    }
+
+    function uidEfetivo() {
+      return possuiMapeamento()
+        ? get(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid)).data.uid_producao_referencia
+        : request.auth.uid;
+    }
+
+    function mapeamento() {
+      return get(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid)).data;
+    }
+
+    function membroExiste(tenantId) {
+      return autenticado()
+        && exists(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo()));
+    }
+
+    function membro(tenantId) {
+      return get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo())).data;
+    }
+
+    function membroAtivo(tenantId) {
+      return membroExiste(tenantId)
+        && membro(tenantId).ativo == true
+        && (!possuiMapeamento() || mapeamento().ativo == true);
+    }
+
+    function temPapel(tenantId, papel) {
+      return membroAtivo(tenantId)
+        && (
+          (possuiMapeamento()
+            && mapeamento().papeis_teste is list
+            && papel in mapeamento().papeis_teste)
+          || (!possuiMapeamento()
+            && membro(tenantId).papeis is list
+            && papel in membro(tenantId).papeis)
+        );
+    }
+
+    function admin(tenantId) {
+      return temPapel(tenantId, 'ADMIN');
+    }
+
+    function barbeiro(tenantId) {
+      return temPapel(tenantId, 'BARBEIRO');
+    }
+
+    function barbeiroId(tenantId) {
+      return possuiMapeamento()
+        ? mapeamento().barbeiro_id
+        : membro(tenantId).barbeiro_id;
+    }
+
+    function donoCliente(clienteUid) {
+      return autenticado() && clienteUid == uidEfetivo();
+    }
+
+    match /system/{documentId} {
+      allow read: if autenticado();
+      allow write: if false;
+    }
+
+    match /homologacao_mapeamentos/{testUid} {
+      allow read: if autenticado() && request.auth.uid == testUid;
+      allow write: if false;
+    }
+
+    match /migration_logs/{logId} {
+      allow read: if autenticado();
+      allow write: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if autenticado() && uid == uidEfetivo();
+      allow create, update: if autenticado()
+        && uid == request.auth.uid
+        && !request.resource.data.keys().hasAny(['papeis', 'papel', 'role', 'roles', 'admin']);
+      allow delete: if false;
+    }
+
+    match /barbearias/{tenantId} {
+      allow read: if autenticado();
+      allow write: if false;
+
+      match /membros/{membroUid} {
+        allow read: if admin(tenantId) || (membroAtivo(tenantId) && membroUid == uidEfetivo());
+        allow create, update, delete: if admin(tenantId);
+      }
+
+      match /clientes/{clienteUid} {
+        allow read: if donoCliente(clienteUid) || admin(tenantId) || barbeiro(tenantId);
+        allow create: if donoCliente(clienteUid)
+          && !request.resource.data.keys().hasAny(['papeis', 'papel', 'role', 'roles', 'admin']);
+        allow update: if donoCliente(clienteUid)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['uid', 'cliente_id', 'papeis', 'papel', 'role', 'roles', 'admin']);
+        allow update, delete: if admin(tenantId);
+      }
+
+      match /barbeiros/{barbeiroDocId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId);
+      }
+
+      match /servicos/{servicoId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId);
+      }
+
+      match /configuracoes/{configId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId);
+      }
+
+      match /bloqueios/{bloqueioId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId)
+          || (barbeiro(tenantId) && request.resource.data.barbeiro_id == barbeiroId(tenantId));
+      }
+
+      match /agendamentos/{agendamentoId} {
+        allow read: if admin(tenantId)
+          || (barbeiro(tenantId) && resource.data.barbeiro_id == barbeiroId(tenantId))
+          || (autenticado() && resource.data.cliente_id == uidEfetivo());
+
+        allow create: if admin(tenantId);
+        allow create: if membroAtivo(tenantId)
+          && temPapel(tenantId, 'CLIENTE')
+          && request.resource.data.cliente_id == uidEfetivo()
+          && request.resource.data.status == 'agendado'
+          && request.resource.data.barbeiro_id is string
+          && request.resource.data.servico_id is string
+          && exists(/databases/$(database)/documents/barbearias/$(tenantId)/barbeiros/$(request.resource.data.barbeiro_id))
+          && exists(/databases/$(database)/documents/barbearias/$(tenantId)/servicos/$(request.resource.data.servico_id));
+
+        allow update: if admin(tenantId)
+          || (barbeiro(tenantId)
+            && resource.data.barbeiro_id == barbeiroId(tenantId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'cliente_chegou_em', 'iniciado_em', 'concluido_em', 'nao_compareceu_em',
+                'cancelado_em', 'cancelado_por', 'valor_final', 'forma_pagamento', 'atualizado_em',
+                'completed_at', 'credito_assinatura_consumido']))
+          || (autenticado()
+            && resource.data.cliente_id == uidEfetivo()
+            && request.resource.data.status == 'cancelado'
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['status', 'cancelado_em', 'cancelado_por', 'atualizado_em']));
+        allow delete: if admin(tenantId);
+      }
+
+      match /ocupacoes/{ocupacaoId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId) || barbeiro(tenantId);
+        allow create: if membroAtivo(tenantId)
+          && temPapel(tenantId, 'CLIENTE')
+          && request.resource.data.agendamento_id is string
+          && getAfter(/databases/$(database)/documents/barbearias/$(tenantId)/agendamentos/$(request.resource.data.agendamento_id)).data.cliente_id == uidEfetivo();
+        allow delete: if membroAtivo(tenantId)
+          && temPapel(tenantId, 'CLIENTE')
+          && getAfter(/databases/$(database)/documents/barbearias/$(tenantId)/agendamentos/$(resource.data.agendamento_id)).data.cliente_id == uidEfetivo();
+      }
+
+      match /planos_assinatura/{planoId} {
+        allow read: if membroAtivo(tenantId);
+        allow create, update, delete: if admin(tenantId);
+      }
+
+      match /assinaturas/{assinaturaId} {
+        allow read: if admin(tenantId) || barbeiro(tenantId)
+          || (autenticado() && resource.data.cliente_id == uidEfetivo());
+        allow create: if temPapel(tenantId, 'CLIENTE')
+          && request.resource.data.cliente_id == uidEfetivo()
+          && request.resource.data.status == 'PENDENTE';
+        allow update: if admin(tenantId);
+        allow update: if barbeiro(tenantId)
+          && request.resource.data.cliente_id == resource.data.cliente_id
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['creditos_mensais', 'ultimo_consumo_agendamento_id', 'ultimo_consumo_em',
+              'status', 'expirado_em', 'motivo_expiracao']);
+        allow update: if temPapel(tenantId, 'CLIENTE')
+          && resource.data.cliente_id == uidEfetivo()
+          && request.resource.data.cliente_id == resource.data.cliente_id
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['creditos_mensais', 'ultima_reserva_agendamento_id', 'ultima_reserva_em',
+              'ultima_liberacao_agendamento_id', 'ultima_liberacao_em']);
+        allow delete: if admin(tenantId);
+      }
+
+      match /historico_assinaturas/{historicoId} {
+        allow read: if admin(tenantId) || barbeiro(tenantId)
+          || (autenticado() && resource.data.cliente_id == uidEfetivo());
+        allow create: if admin(tenantId) || barbeiro(tenantId);
+        allow update, delete: if false;
+      }
+
+      match /fechamentos/{fechamentoId} {
+        allow read: if admin(tenantId)
+          || (barbeiro(tenantId) && resource.data.barbeiro_id == barbeiroId(tenantId));
+        allow create, update: if admin(tenantId) || barbeiro(tenantId);
+        allow delete: if admin(tenantId);
+      }
+
+      match /financeiro/{document=**} {
+        allow read: if admin(tenantId);
+        allow write: if false;
+      }
+
+      // Dual Read nunca grava pelo navegador. As divergências são inseridas
+      // exclusivamente pela rotina administrativa autenticada com conta de
+      // serviço; o SDK cliente pode apenas permitir que o Admin as consulte.
+      match /audit_logs/{auditId} {
+        allow read: if admin(tenantId);
+        allow create, update, delete: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

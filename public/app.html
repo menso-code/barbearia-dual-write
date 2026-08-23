@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Barbearia Antunes - Minha conta</title>
+<meta name="theme-color" content="#080a09" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" href="img/favicon-round.png" />
+<link rel="apple-touch-icon" href="img/logo-192.png" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="app-shell">
+
+<div class="topbar">
+  <div class="brand"><img class="brand-logo" src="img/logo.png" alt="Barbearia Antunes" /> Barbearia<span class="brand-dot">Antunes</span></div>
+  <div class="nav-actions">
+    <div class="account-menu-wrap">
+      <button class="account-trigger" id="account-trigger" type="button" aria-label="Abrir menu da conta" aria-controls="account-dropdown" aria-expanded="false" aria-haspopup="menu">
+        <span class="account-avatar" id="header-avatar">BA</span>
+        <span class="account-profile-copy"><span class="user-chip" id="user-chip"></span><span class="user-role" id="user-role">Cliente</span></span>
+        <span class="account-more" aria-hidden="true">⋮</span>
+      </button>
+      <div class="account-dropdown" id="account-dropdown" role="menu" aria-label="Área do cliente" aria-hidden="true">
+        <span class="account-dropdown-title">Área do cliente</span>
+        <a href="account.html#visao-geral" role="menuitem">Visão geral</a>
+        <a href="account.html#meu-perfil" role="menuitem">Meu perfil</a>
+        <a href="account.html#agendamentos" role="menuitem">Meus agendamentos</a>
+        <a href="account.html#preferencias" role="menuitem">Preferências</a>
+        <a href="account.html#seguranca" role="menuitem">Segurança</a>
+        <a href="account.html#fidelidade" role="menuitem">Fidelidade</a>
+        <div id="privileged-menu-items"></div>
+        <button type="button" role="menuitem" class="account-logout" data-logout>Sair</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <h1 class="sr-only">Área do cliente</h1>
+
+  <nav class="sub-nav client-segmented-nav" aria-label="Navegação da área do cliente">
+    <button class="active" data-view="barbeiros">Escolher barbeiro</button>
+    <button data-view="assinaturas">Assinaturas</button>
+    <button data-view="meus">Meus agendamentos</button>
+  </nav>
+
+  <!-- ===================== VIEW: BARBEIROS ===================== -->
+  <section class="view active" id="view-barbeiros">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Nossa equipe</span>
+        <h2>Escolha seu barbeiro</h2>
+      </div>
+    </div>
+    <div class="barbeiros-grid" id="barbeiros-grid">
+      <p style="color:var(--cinza)">Carregando barbeiros…</p>
+    </div>
+  </section>
+
+  <!-- ===================== VIEW: ASSINATURAS ===================== -->
+  <section class="view" id="view-assinaturas">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Planos mensais</span>
+        <h2>Assinaturas</h2>
+      </div>
+    </div>
+    <p class="limit-note" id="assinaturas-introducao">Escolha o plano que mais combina com a sua rotina. O atendimento será realizado pelo barbeiro disponível no dia e horário escolhidos.</p>
+    <p class="assinaturas-cliente-feedback" id="assinaturas-cliente-feedback" aria-live="polite"></p>
+    <section class="minha-assinatura" id="minha-assinatura" hidden aria-live="polite"></section>
+    <section class="planos-disponiveis" id="planos-disponiveis" hidden aria-labelledby="planos-disponiveis-titulo">
+      <div class="planos-disponiveis-head">
+        <span class="eyebrow">Planos disponíveis</span>
+        <h3 id="planos-disponiveis-titulo">Planos disponíveis</h3>
+        <p>Conheça outros planos da Barbearia Antunes.</p>
+      </div>
+      <div class="assinaturas-cliente-grid" id="assinaturas-cliente-grid">
+        <p style="color:var(--cinza)">Carregando planos…</p>
+      </div>
+    </section>
+  </section>
+
+  <!-- ===================== VIEW: AGENDAR ===================== -->
+  <section class="view" id="view-agendar">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Novo horário</span>
+        <h2>Confirmar agendamento</h2>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-view-btn="barbeiros">← Voltar</button>
+    </div>
+
+    <div class="booking-card">
+      <div class="booking-summary">
+        <img id="ag-foto" src="" alt="" />
+        <div>
+          <div class="nome" id="ag-nome"></div>
+          <div class="esp" id="ag-esp"></div>
+        </div>
+      </div>
+      <p class="booking-assinatura-note" id="ag-assinatura-note" hidden>Este atendimento será realizado pelo barbeiro disponível no horário.</p>
+
+      <div id="agendar-msg" class="msg"></div>
+
+      <form id="form-agendar">
+        <div class="field">
+          <label for="ag-servico">Serviço</label>
+          <select id="ag-servico" required></select>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="ag-data">Data</label>
+            <input id="ag-data" type="date" required />
+          </div>
+          <div class="field">
+            <label for="ag-horario">Horário</label>
+            <select id="ag-horario" required>
+              <option value="">Selecione</option>
+              <option>09:00</option><option>09:30</option><option>10:00</option>
+              <option>10:30</option><option>11:00</option><option>11:30</option>
+              <option>13:00</option><option>13:30</option><option>14:00</option>
+              <option>14:30</option><option>15:00</option><option>15:30</option>
+              <option>16:00</option><option>16:30</option><option>17:00</option>
+              <option>17:30</option><option>18:00</option><option>18:30</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Confirmar agendamento</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===================== VIEW: MEUS AGENDAMENTOS ===================== -->
+  <section class="view" id="view-meus">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">Sua agenda</span>
+        <h2>Meus agendamentos</h2>
+      </div>
+    </div>
+    <div id="meus-lista"></div>
+  </section>
+
+</div>
+
+<section class="location-section" aria-labelledby="location-title">
+  <span class="eyebrow">Onde estamos</span>
+  <h2 id="location-title">Barbearia Antunes</h2>
+  <p class="location-address">Localização disponível no Google Maps.</p>
+  <p class="location-copy">Abra o mapa para conferir o endereço e traçar sua rota até a barbearia.</p>
+  <a class="btn btn-ghost location-action" href="https://maps.app.goo.gl/t1bSFhyZXwm4AMDw8" target="_blank" rel="noopener noreferrer">📍 Como chegar</a>
+</section>
+
+<!-- ===================== MODAL: SOLICITAR ASSINATURA ===================== -->
+<div class="modal-backdrop" id="modal-solicitar-assinatura" aria-hidden="true">
+  <div class="modal modal-confirmation" role="dialog" aria-modal="true" aria-labelledby="solicitacao-assinatura-titulo">
+    <span class="eyebrow">Assinatura</span>
+    <h3 id="solicitacao-assinatura-titulo">Solicitar assinatura?</h3>
+    <p class="assinatura-confirmacao-plano" id="solicitacao-assinatura-plano"></p>
+    <p>Sua assinatura será ativada após a confirmação do pagamento presencial na barbearia.</p>
+    <p>Os atendimentos serão realizados pelo barbeiro disponível no dia e horário escolhido.</p>
+    <details class="termos-assinatura" open>
+      <summary>Termos de Uso da Assinatura</summary>
+      <div class="termos-assinatura-conteudo" tabindex="0" aria-label="Termos de Uso da Assinatura">
+        <ol>
+          <li><strong>Pagamento e ativação</strong><span>A assinatura será ativada após a confirmação do pagamento presencial pela Barbearia Antunes.</span></li>
+          <li><strong>Início da assinatura</strong><span>A assinatura não será válida para o mês vigente. Os benefícios serão disponibilizados para o próximo período definido na ativação.</span></li>
+          <li><strong>Cancelamento da assinatura</strong><span>Após a ativação, não será possível solicitar o cancelamento da assinatura pelo sistema.</span></li>
+          <li><strong>Uso pessoal</strong><span>A assinatura é pessoal e intransferível.</span></li>
+          <li><strong>Atendimento</strong><span>Os serviços da assinatura serão realizados pelo barbeiro disponível no dia e horário escolhido. A assinatura não garante um profissional específico.</span></li>
+          <li><strong>Disponibilidade</strong><span>Os atendimentos dependem da disponibilidade da agenda, horários de funcionamento, folgas, feriados e bloqueios.</span></li>
+          <li><strong>Créditos</strong><span>Os créditos não utilizados dentro do período contratado não acumulam para o período seguinte e não podem ser convertidos em dinheiro.</span></li>
+          <li><strong>Cancelamento de horário</strong><span>O cancelamento de agendamentos continua sujeito à antecedência mínima estabelecida pela barbearia.</span></li>
+          <li><strong>Não comparecimento</strong><span>O não comparecimento sem cancelamento dentro do prazo consome um crédito correspondente ao serviço reservado.</span></li>
+          <li><strong>Renovação</strong><span>A assinatura não possui renovação automática. Um novo período depende de nova confirmação e pagamento.</span></li>
+          <li><strong>Alterações futuras</strong><span>Preços e condições podem ser atualizados para futuras contratações ou renovações, sem alterar benefícios já pagos no período vigente.</span></li>
+          <li><strong>Aceite</strong><span>Ao marcar “Li e aceito os Termos de Uso da Assinatura”, o cliente confirma que leu e concorda com as condições.</span></li>
+        </ol>
+        <p class="termos-assinatura-ajuda">Role para ler todos os termos.</p>
+      </div>
+    </details>
+    <label class="termos-aceite"><input id="solicitacao-assinatura-termos" type="checkbox" /> Li e aceito os Termos de Uso da Assinatura.</label>
+    <div id="solicitacao-assinatura-msg" class="msg" aria-live="polite"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost btn-block" id="btn-cancelar-solicitacao-assinatura">Voltar</button>
+      <button type="button" class="btn btn-primary btn-block" id="btn-confirmar-solicitacao-assinatura">Confirmar solicitação</button>
+    </div>
+  </div>
+</div>
+
+<div class="footer-note">Barbearia Antunes - agendamentos sujeitos à disponibilidade do barbeiro.</div>
+
+<script type="module" src="js/app.js"></script>
+<script defer src="js/pwa-install.js"></script>
+</body>
+</html>

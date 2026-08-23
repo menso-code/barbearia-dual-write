@@ -1,0 +1,24 @@
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs22"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "auth": {
+    "authorizedDomains": ["localhost", "barber-a01e7.web.app", "barber-a01e7.firebaseapp.com"],
+    "providers": {
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "Barbearia Antunes",
+        "supportEmail": "SEU_EMAIL_DE_SUPORTE@exemplo.com"
+      }
+    }
+  }
+}

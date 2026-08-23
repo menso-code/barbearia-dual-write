@@ -1,0 +1,709 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Identidade e papéis confiáveis: nunca são obtidos do HTML/JavaScript.
+    function logado() {
+      return request.auth != null;
+    }
+
+    function ehAdmin() {
+      return logado()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function ehBarbeiroDo(barbeiroId) {
+      return logado()
+        && exists(/databases/$(database)/documents/barbeiros/$(barbeiroId))
+        && get(/databases/$(database)/documents/barbeiros/$(barbeiroId)).data.uid_usuario == request.auth.uid
+        && get(/databases/$(database)/documents/barbeiros/$(barbeiroId)).data.ativo == true;
+    }
+
+    function dataValida(data) {
+      return data is string && data.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function horarioValido(horario) {
+      return horario is string && horario.matches('^[0-2][0-9]:[0-5][0-9]$');
+    }
+
+    // Os valores abaixo são apresentados em HTML em áreas administrativas.
+    // Não é um substituto para escape no frontend, mas reduz a superfície de
+    // dados persistidos por usuários não confiáveis.
+    function textoSeguro(valor) {
+      return valor is string
+        && valor.size() <= 160
+        && !valor.matches('.*[<>"].*');
+    }
+
+    function whatsappValido(valor) {
+      return valor is string && valor.matches('^[0-9]{0,13}$');
+    }
+
+    function idAgendamentoCorreto(id, dados) {
+      return id == dados.barbeiro_id + '_' + dados.data + '_' + dados.horario;
+    }
+
+    // Agendamentos novos registram o ID real da assinatura. O fallback preserva
+    // reservas antigas criadas antes desse vínculo explícito.
+    function idAssinaturaDoAgendamento(dados) {
+      return dados.keys().hasAll(['assinatura_id'])
+        ? dados.assinatura_id
+        : dados.cliente_id + '_' + dados.assinatura_plano_id;
+    }
+
+    function camposAgendamentoPermitidos() {
+      return request.resource.data.keys().hasOnly([
+        'cliente_id', 'cliente_nome', 'cliente_whatsapp', 'cliente_tipo',
+        'barbeiro_id', 'barbeiro_nome',
+        'servico_id', 'servico_nome', 'servico_preco', 'duracao',
+        'data', 'horario', 'status', 'criado_em',
+        'criado_por', 'criado_por_tipo', 'origem',
+        'assinatura_id', 'assinatura_plano_id', 'assinatura_credito_tipo', 'credito_assinatura_consumido', 'credito_assinatura_reservado',
+        'checked_in_at', 'started_at', 'completed_at', 'cancelado_em', 'nao_compareceu_em'
+      ]);
+    }
+
+    function detalhesAssinaturaDoAgendamentoValidos(id) {
+      return request.resource.data.keys().hasAll([
+          'assinatura_id', 'assinatura_plano_id', 'assinatura_credito_tipo', 'credito_assinatura_consumido', 'credito_assinatura_reservado'
+        ])
+        && request.resource.data.origem == 'assinatura'
+        && request.resource.data.assinatura_id is string
+        && request.resource.data.assinatura_plano_id is string
+        // Para novos usos, o crédito é identificado pelo mesmo ID do serviço.
+        && request.resource.data.assinatura_credito_tipo is string
+        && request.resource.data.assinatura_credito_tipo == request.resource.data.servico_id
+        && request.resource.data.credito_assinatura_consumido == false
+        && request.resource.data.credito_assinatura_reservado == true
+        && exists(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id))
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.cliente_id == request.auth.uid
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.plano_id == request.resource.data.assinatura_plano_id
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.status == 'ATIVA'
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.vencimento_em >= request.time
+        && existsAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id))
+        && getAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.ultima_reserva_agendamento_id == id
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.servicos_ids.hasAny([request.resource.data.servico_id])
+        && get(/databases/$(database)/documents/solicitacoes_assinatura/$(request.resource.data.assinatura_id)).data.creditos_mensais[request.resource.data.servico_id].servico_id == request.resource.data.servico_id;
+    }
+
+    function consumoDeCreditoPorTipoValido(tipo) {
+      let antes = resource.data.creditos_mensais[tipo];
+      let depois = request.resource.data.creditos_mensais[tipo];
+      return antes.total is int
+        && antes.utilizados is int
+        && antes.restantes is int
+        && antes.reservados is int
+        && antes.restantes > 0
+        && antes.reservados > 0
+        && depois.total == antes.total
+        && depois.utilizados == antes.utilizados + 1
+        && depois.restantes == antes.restantes - 1
+        && depois.reservados == antes.reservados - 1
+        && depois.diff(antes).affectedKeys().hasOnly(['utilizados', 'restantes', 'reservados'])
+        && request.resource.data.creditos_mensais.diff(resource.data.creditos_mensais).affectedKeys().hasOnly([tipo]);
+    }
+
+    function reservaDeCreditoPorTipoValida(tipo) {
+      let antes = resource.data.creditos_mensais[tipo];
+      let depois = request.resource.data.creditos_mensais[tipo];
+      return antes.total is int
+        && antes.utilizados is int
+        && antes.restantes is int
+        && antes.reservados is int
+        && antes.restantes > antes.reservados
+        && depois.total == antes.total
+        && depois.utilizados == antes.utilizados
+        && depois.restantes == antes.restantes
+        && depois.reservados == antes.reservados + 1
+        && depois.diff(antes).affectedKeys().hasOnly(['reservados'])
+        && request.resource.data.creditos_mensais.diff(resource.data.creditos_mensais).affectedKeys().hasOnly([tipo]);
+    }
+
+    function liberacaoDeReservaPorTipoValida(tipo) {
+      let antes = resource.data.creditos_mensais[tipo];
+      let depois = request.resource.data.creditos_mensais[tipo];
+      return antes.total is int
+        && antes.utilizados is int
+        && antes.restantes is int
+        && antes.reservados is int
+        && antes.reservados > 0
+        && depois.total == antes.total
+        && depois.utilizados == antes.utilizados
+        && depois.restantes == antes.restantes
+        && depois.reservados == antes.reservados - 1
+        && depois.diff(antes).affectedKeys().hasOnly(['reservados'])
+        && request.resource.data.creditos_mensais.diff(resource.data.creditos_mensais).affectedKeys().hasOnly([tipo]);
+    }
+
+    function consumoDeCreditoDaAssinaturaValido(assinaturaId) {
+      let agendamentoId = request.resource.data.ultimo_consumo_agendamento_id;
+      return resource.data.status == 'ATIVA'
+        && resource.data.vencimento_em >= request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'creditos_mensais', 'ultimo_consumo_agendamento_id', 'ultimo_consumo_em',
+          'status', 'expirada_em', 'motivo_expiracao'
+        ])
+        && ((request.resource.data.status == 'ATIVA'
+              && !request.resource.data.keys().hasAny(['expirada_em', 'motivo_expiracao']))
+          || (request.resource.data.status == 'EXPIRADA'
+              && request.resource.data.expirada_em == request.time
+              && request.resource.data.motivo_expiracao == 'CREDITOS_ESGOTADOS'))
+        && request.resource.data.ultimo_consumo_agendamento_id is string
+        && request.resource.data.ultimo_consumo_em == request.time
+        && (!resource.data.keys().hasAll(['ultimo_consumo_agendamento_id'])
+          || resource.data.ultimo_consumo_agendamento_id != agendamentoId)
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId))
+        && existsAfter(/databases/$(database)/documents/historico_assinaturas/$(agendamentoId + '_credito'))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.status in ['concluido', 'nao_compareceu']
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.cliente_id == resource.data.cliente_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_plano_id == resource.data.plano_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_id == assinaturaId
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.credito_assinatura_consumido == true
+        && ehBarbeiroDo(getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.barbeiro_id)
+        && consumoDeCreditoPorTipoValido(getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_credito_tipo);
+    }
+
+    function reservaDeCreditoDaAssinaturaValida(assinaturaId) {
+      let agendamentoId = request.resource.data.ultima_reserva_agendamento_id;
+      return resource.data.status == 'ATIVA'
+        && request.auth.uid == resource.data.cliente_id
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'creditos_mensais', 'ultima_reserva_agendamento_id', 'ultima_reserva_em'
+        ])
+        && request.resource.data.ultima_reserva_agendamento_id is string
+        && request.resource.data.ultima_reserva_em == request.time
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.status == 'agendado'
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.criado_em == request.time
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.cliente_id == resource.data.cliente_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_plano_id == resource.data.plano_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_id == assinaturaId
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.credito_assinatura_reservado == true
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.credito_assinatura_consumido == false
+        && reservaDeCreditoPorTipoValida(getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_credito_tipo);
+    }
+
+    function liberacaoDeReservaDaAssinaturaValida(assinaturaId) {
+      let agendamentoId = request.resource.data.ultima_liberacao_agendamento_id;
+      return resource.data.status in ['ATIVA', 'EXPIRADA']
+        && (request.auth.uid == resource.data.cliente_id
+          || ehBarbeiroDo(getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.barbeiro_id))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'creditos_mensais', 'ultima_liberacao_agendamento_id', 'ultima_liberacao_em'
+        ])
+        && request.resource.data.ultima_liberacao_agendamento_id is string
+        && request.resource.data.ultima_liberacao_em == request.time
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.status == 'cancelado'
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.cliente_id == resource.data.cliente_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_plano_id == resource.data.plano_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_id == assinaturaId
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.credito_assinatura_reservado == true
+        && getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.credito_assinatura_consumido == false
+        && liberacaoDeReservaPorTipoValida(getAfter(/databases/$(database)/documents/agendamentos/$(agendamentoId)).data.assinatura_credito_tipo);
+    }
+
+    function conclusaoDeAssinaturaComCreditoValida(id) {
+      return request.resource.data.origem == 'assinatura'
+        && request.resource.data.credito_assinatura_consumido == true
+        && (!resource.data.keys().hasAll(['credito_assinatura_consumido']) || resource.data.credito_assinatura_consumido == false)
+        && existsAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(idAssinaturaDoAgendamento(request.resource.data)))
+        && getAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(idAssinaturaDoAgendamento(request.resource.data))).data.ultimo_consumo_agendamento_id == id;
+    }
+
+    function cancelamentoDeAssinaturaComLiberacaoValida(id) {
+      return resource.data.origem == 'assinatura'
+        && resource.data.credito_assinatura_reservado == true
+        && resource.data.credito_assinatura_consumido == false
+        && existsAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(idAssinaturaDoAgendamento(resource.data)))
+        && getAfter(/databases/$(database)/documents/solicitacoes_assinatura/$(idAssinaturaDoAgendamento(resource.data))).data.ultima_liberacao_agendamento_id == id;
+    }
+
+    function novoAgendamentoValido(id) {
+      return camposAgendamentoPermitidos()
+        && request.resource.data.keys().hasAll([
+          'cliente_id', 'cliente_nome', 'cliente_whatsapp', 'cliente_tipo',
+          'barbeiro_id', 'barbeiro_nome', 'servico_id', 'servico_nome',
+          'duracao', 'data', 'horario', 'status', 'criado_em'
+        ])
+        && request.resource.data.cliente_id is string
+        && request.resource.data.barbeiro_id is string
+        && request.resource.data.servico_id is string
+        && request.resource.data.duracao is int
+        && request.resource.data.duracao > 0
+        && textoSeguro(request.resource.data.cliente_nome)
+        && textoSeguro(request.resource.data.barbeiro_nome)
+        && textoSeguro(request.resource.data.servico_nome)
+        && whatsappValido(request.resource.data.cliente_whatsapp)
+        && request.resource.data.status == 'agendado'
+        && dataValida(request.resource.data.data)
+        && horarioValido(request.resource.data.horario)
+        && idAgendamentoCorreto(id, request.resource.data)
+        && exists(/databases/$(database)/documents/barbeiros/$(request.resource.data.barbeiro_id))
+        && get(/databases/$(database)/documents/barbeiros/$(request.resource.data.barbeiro_id)).data.ativo == true
+        && get(/databases/$(database)/documents/barbeiros/$(request.resource.data.barbeiro_id)).data.nome == request.resource.data.barbeiro_nome
+        && exists(/databases/$(database)/documents/servicos/$(request.resource.data.servico_id))
+        && get(/databases/$(database)/documents/servicos/$(request.resource.data.servico_id)).data.nome == request.resource.data.servico_nome
+        && ((!get(/databases/$(database)/documents/servicos/$(request.resource.data.servico_id)).data.keys().hasAll(['duracao'])
+            && request.resource.data.duracao == 30)
+          || (get(/databases/$(database)/documents/servicos/$(request.resource.data.servico_id)).data.keys().hasAll(['duracao'])
+            && get(/databases/$(database)/documents/servicos/$(request.resource.data.servico_id)).data.duracao == request.resource.data.duracao))
+        // O primeiro bloco tem o mesmo ID canônico do agendamento. getAfter
+        // obriga que ele seja criado na mesma transação, não via uma chamada solta.
+        && existsAfter(/databases/$(database)/documents/ocupacoes/$(id))
+        && (!request.resource.data.keys().hasAll(['servico_preco']) || textoSeguro(request.resource.data.servico_preco))
+        && (!request.resource.data.keys().hasAny(['assinatura_id', 'assinatura_plano_id', 'assinatura_credito_tipo', 'credito_assinatura_consumido', 'credito_assinatura_reservado'])
+          || detalhesAssinaturaDoAgendamentoValidos(id));
+    }
+
+    function dadosClientePermitidos() {
+      return request.resource.data.keys().hasOnly([
+        'nome', 'email', 'telefone', 'data_de_criacao', 'data_nascimento',
+        'avatar_data', 'barbeiro_favorito_id', 'servico_favorito_id',
+        'periodo_preferido', 'observacoes'
+      ]);
+    }
+
+    function solicitacaoAssinaturaValida(id) {
+      return request.resource.data.keys().hasOnly([
+          'cliente_id', 'cliente_nome', 'plano_id', 'plano_nome',
+          'plano_preco_centavos', 'status', 'solicitado_em', 'termos_aceitos', 'termos_aceitos_em'
+        ])
+        && request.resource.data.keys().hasAll([
+          'cliente_id', 'cliente_nome', 'plano_id', 'plano_nome',
+          'plano_preco_centavos', 'status', 'solicitado_em', 'termos_aceitos', 'termos_aceitos_em'
+        ])
+        && request.resource.data.cliente_id == request.auth.uid
+        && request.resource.data.plano_id is string
+        && textoSeguro(request.resource.data.cliente_nome)
+        && textoSeguro(request.resource.data.plano_nome)
+        && request.resource.data.plano_preco_centavos is int
+        && request.resource.data.plano_preco_centavos > 0
+        && request.resource.data.status == 'PENDENTE'
+        && request.resource.data.solicitado_em == request.time
+        && request.resource.data.termos_aceitos == true
+        && request.resource.data.termos_aceitos_em == request.time
+        && id == request.auth.uid + '_' + request.resource.data.plano_id
+        && exists(/databases/$(database)/documents/clientes/$(request.auth.uid))
+        && get(/databases/$(database)/documents/clientes/$(request.auth.uid)).data.nome == request.resource.data.cliente_nome
+        && exists(/databases/$(database)/documents/planos_assinatura/$(request.resource.data.plano_id))
+        && get(/databases/$(database)/documents/planos_assinatura/$(request.resource.data.plano_id)).data.ativo == true
+        && get(/databases/$(database)/documents/planos_assinatura/$(request.resource.data.plano_id)).data.nome == request.resource.data.plano_nome
+        && get(/databases/$(database)/documents/planos_assinatura/$(request.resource.data.plano_id)).data.preco_centavos == request.resource.data.plano_preco_centavos
+        && get(/databases/$(database)/documents/planos_assinatura/$(request.resource.data.plano_id)).data.servicos_ids.size() > 0;
+    }
+
+    function ocupacaoDeAgendamentoValida(id) {
+      return request.resource.data.keys().hasOnly([
+          'barbeiro_id', 'data', 'horario', 'agendamento_id', 'criado_em'
+        ])
+        && request.resource.data.keys().hasAll([
+          'barbeiro_id', 'data', 'horario', 'agendamento_id', 'criado_em'
+        ])
+        && request.resource.data.barbeiro_id is string
+        && request.resource.data.agendamento_id is string
+        && dataValida(request.resource.data.data)
+        && horarioValido(request.resource.data.horario)
+        && id == request.resource.data.barbeiro_id + '_' + request.resource.data.data + '_' + request.resource.data.horario
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.status == 'agendado'
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.barbeiro_id == request.resource.data.barbeiro_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.data == request.resource.data.data;
+    }
+
+    function ocupacaoDeBloqueioValida(id) {
+      return request.resource.data.keys().hasOnly([
+          'barbeiro_id', 'data', 'horario', 'bloqueio_id', 'tipo', 'criado_em'
+        ])
+        && request.resource.data.keys().hasAll([
+          'barbeiro_id', 'data', 'horario', 'bloqueio_id', 'tipo', 'criado_em'
+        ])
+        && request.resource.data.barbeiro_id is string
+        && request.resource.data.bloqueio_id is string
+        && request.resource.data.tipo == 'bloqueio'
+        && dataValida(request.resource.data.data)
+        && horarioValido(request.resource.data.horario)
+        && id == request.resource.data.barbeiro_id + '_' + request.resource.data.data + '_' + request.resource.data.horario
+        && existsAfter(/databases/$(database)/documents/bloqueios/$(request.resource.data.bloqueio_id))
+        && getAfter(/databases/$(database)/documents/bloqueios/$(request.resource.data.bloqueio_id)).data.barbeiro_id == request.resource.data.barbeiro_id
+        && getAfter(/databases/$(database)/documents/bloqueios/$(request.resource.data.bloqueio_id)).data.data == request.resource.data.data;
+    }
+
+    function ocupacaoDeReservaFoiLiberada() {
+      return resource.data.keys().hasAll(['barbeiro_id', 'agendamento_id'])
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(resource.data.agendamento_id))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(resource.data.agendamento_id)).data.barbeiro_id == resource.data.barbeiro_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(resource.data.agendamento_id)).data.status in ['cancelado', 'nao_compareceu'];
+    }
+
+    function ocupacaoDeBloqueioFoiLiberada() {
+      return resource.data.keys().hasAll(['barbeiro_id', 'bloqueio_id'])
+        && !existsAfter(/databases/$(database)/documents/bloqueios/$(resource.data.bloqueio_id));
+    }
+
+    function bloqueioValido(id) {
+      return request.resource.data.keys().hasOnly([
+          'barbeiro_id', 'data', 'inicio', 'fim', 'duracao', 'motivo', 'criado_em'
+        ])
+        && request.resource.data.keys().hasAll([
+          'barbeiro_id', 'data', 'inicio', 'fim', 'duracao', 'motivo', 'criado_em'
+        ])
+        && request.resource.data.barbeiro_id is string
+        && request.resource.data.duracao is int
+        && request.resource.data.duracao > 0
+        && dataValida(request.resource.data.data)
+        && horarioValido(request.resource.data.inicio)
+        && horarioValido(request.resource.data.fim)
+        && id == request.resource.data.barbeiro_id + '_' + request.resource.data.data + '_' + request.resource.data.inicio;
+    }
+
+    // Cada cliente controla apenas o próprio perfil. Campos de papel, UID e
+    // permissões simplesmente não fazem parte do schema aceito pelo cliente.
+    match /clientes/{uid} {
+      allow get: if logado() && (request.auth.uid == uid || ehAdmin());
+      allow list: if ehAdmin();
+      allow create: if logado()
+        && request.auth.uid == uid
+        && dadosClientePermitidos()
+        && request.resource.data.keys().hasAll(['nome', 'email', 'telefone', 'data_de_criacao'])
+        && request.auth.token.email != null
+        && request.resource.data.email == request.auth.token.email
+        && textoSeguro(request.resource.data.nome)
+        && whatsappValido(request.resource.data.telefone);
+      allow update: if logado()
+        && request.auth.uid == uid
+        && dadosClientePermitidos()
+        && textoSeguro(request.resource.data.nome)
+        && whatsappValido(request.resource.data.telefone)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'nome', 'telefone', 'data_nascimento', 'avatar_data',
+          'barbeiro_favorito_id', 'servico_favorito_id', 'periodo_preferido', 'observacoes'
+        ]);
+      allow delete: if false;
+    }
+
+    // A existência do documento é a fonte única do privilégio administrativo.
+    // O browser jamais pode criá-lo ou alterá-lo.
+    match /admins/{uid} {
+      allow get: if logado() && request.auth.uid == uid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /configuracoes/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+
+    match /fechamentos_globais/{data} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+
+    // A leitura é necessária para o cliente escolher um profissional ativo.
+    // Escritas administrativas continuam exclusivas do administrador. O UID
+    // de acesso não pode ser reivindicado pelo browser do próprio profissional.
+    match /barbeiros/{id} {
+      allow read: if logado();
+      allow create, delete: if ehAdmin();
+      allow update: if ehAdmin();
+    }
+
+    match /servicos/{id} {
+      allow read: if logado();
+      allow write: if ehAdmin();
+    }
+
+    // O catálogo ativo pode ser visto por contas autenticadas na vitrine do
+    // cliente. Planos inativos e qualquer escrita continuam administrativos.
+    match /planos_assinatura/{id} {
+      allow get, list: if ehAdmin()
+        || (logado() && resource.data.ativo == true);
+      allow create, update, delete: if ehAdmin();
+    }
+
+    // O cliente pode abrir somente a própria solicitação, sempre como PENDENTE
+    // e com preço/nome conferidos no plano ativo. Ele não consegue ativar,
+    // alterar ou apagar a solicitação via SDK, REST ou DevTools.
+    match /solicitacoes_assinatura/{id} {
+      allow get, list: if ehAdmin()
+        || (logado() && resource.data.cliente_id == request.auth.uid);
+      allow create: if logado() && solicitacaoAssinaturaValida(id);
+      allow update: if ehAdmin()
+        || reservaDeCreditoDaAssinaturaValida(id)
+        || liberacaoDeReservaDaAssinaturaValida(id)
+        || consumoDeCreditoDaAssinaturaValido(id);
+      allow delete: if ehAdmin();
+    }
+
+    // Histórico imutável: cada consumo é criado junto da conclusão do
+    // agendamento. Nem cliente nem barbeiro podem editar ou apagar registros.
+    match /historico_assinaturas/{id} {
+      allow read: if ehAdmin();
+      allow create: if ehAdmin() || (logado()
+        && request.resource.data.keys().hasOnly([
+          'assinatura_id', 'cliente_id', 'plano_id', 'agendamento_id',
+          'servico_nome', 'barbeiro_id', 'barbeiro_nome', 'credito_tipo',
+          'creditos_consumidos', 'utilizado_em'
+        ])
+        && request.resource.data.agendamento_id is string
+        && id == request.resource.data.agendamento_id + '_credito'
+        && request.resource.data.creditos_consumidos == 1
+        && request.resource.data.utilizado_em == request.time
+        && existsAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id))
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.status in ['concluido', 'nao_compareceu']
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.credito_assinatura_consumido == true
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.cliente_id == request.resource.data.cliente_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.assinatura_plano_id == request.resource.data.plano_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.assinatura_credito_tipo == request.resource.data.credito_tipo
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.barbeiro_id == request.resource.data.barbeiro_id
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.barbeiro_nome == request.resource.data.barbeiro_nome
+        && getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.servico_nome == request.resource.data.servico_nome
+        && ehBarbeiroDo(request.resource.data.barbeiro_id));
+      allow update, delete: if false;
+    }
+
+    match /agendamentos/{id} {
+      allow get: if logado() && (
+        // A transação de criação consulta o ID canônico antes de gravar. Para
+        // um horário livre o documento ainda não existe; liberar somente essa
+        // ausência permite detectar conflito sem revelar agendamentos alheios.
+        !exists(/databases/$(database)/documents/agendamentos/$(id))
+        || resource.data.cliente_id == request.auth.uid
+        || ehAdmin()
+        || ehBarbeiroDo(resource.data.barbeiro_id)
+      );
+      allow list: if logado() && (
+        resource.data.cliente_id == request.auth.uid
+        || ehAdmin()
+        || ehBarbeiroDo(resource.data.barbeiro_id)
+      );
+      allow create: if ehAdmin()
+        || (logado()
+          && novoAgendamentoValido(id)
+          && request.resource.data.cliente_id == request.auth.uid
+          && request.resource.data.cliente_tipo == 'autenticado'
+          && get(/databases/$(database)/documents/clientes/$(request.auth.uid)).data.nome == request.resource.data.cliente_nome
+          && get(/databases/$(database)/documents/clientes/$(request.auth.uid)).data.telefone == request.resource.data.cliente_whatsapp)
+        || (logado()
+          && novoAgendamentoValido(id)
+          && ehBarbeiroDo(request.resource.data.barbeiro_id)
+          && request.resource.data.cliente_tipo == 'presencial'
+          && request.resource.data.criado_por == request.auth.uid
+          && request.resource.data.criado_por_tipo == 'barbeiro');
+      allow update: if ehAdmin()
+        || (ehBarbeiroDo(resource.data.barbeiro_id)
+          && request.resource.data.barbeiro_id == resource.data.barbeiro_id
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'checked_in_at', 'started_at', 'completed_at', 'cancelado_em', 'nao_compareceu_em',
+            'credito_assinatura_consumido', 'credito_assinatura_reservado'
+          ])
+          && ((resource.data.status == 'agendado' && request.resource.data.status in ['cliente_chegou', 'cancelado', 'nao_compareceu'])
+            || (resource.data.status == 'cliente_chegou' && request.resource.data.status in ['em_atendimento', 'cancelado', 'nao_compareceu'])
+            || (resource.data.status == 'em_atendimento' && request.resource.data.status in ['concluido', 'cancelado']))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['credito_assinatura_consumido'])
+            || conclusaoDeAssinaturaComCreditoValida(id))
+          && (request.resource.data.status != 'cancelado'
+            || resource.data.origem != 'assinatura'
+            || cancelamentoDeAssinaturaComLiberacaoValida(id)))
+        || (logado()
+          && resource.data.cliente_id == request.auth.uid
+          && resource.data.status == 'agendado'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'cancelado_em'])
+          && request.resource.data.status == 'cancelado'
+          && (resource.data.origem != 'assinatura'
+            || cancelamentoDeAssinaturaComLiberacaoValida(id)))
+        || (logado()
+          && resource.data.status == 'cancelado'
+          && request.resource.data.cliente_id == request.auth.uid
+          && novoAgendamentoValido(id)
+          && request.resource.data.cliente_id == request.auth.uid
+          && request.resource.data.cliente_tipo == 'autenticado'
+          && get(/databases/$(database)/documents/clientes/$(request.auth.uid)).data.nome == request.resource.data.cliente_nome
+          && get(/databases/$(database)/documents/clientes/$(request.auth.uid)).data.telefone == request.resource.data.cliente_whatsapp);
+      allow delete: if ehAdmin();
+    }
+
+    // Uma ocupação só existe como efeito da mesma transação que cria um
+    // agendamento/bloqueio válido. Assim não pode ser forjada nem apagada de
+    // forma isolada via SDK, REST ou DevTools.
+    match /ocupacoes/{id} {
+      allow get: if logado() && (
+        // A consulta pontual de um slot inexistente precisa ser permitida para
+        // a tela de disponibilidade distinguir vaga de horário ocupado. Sem
+        // este caso, o Firestore nega `get` de documentos ausentes e o cliente
+        // os trata com segurança como ocupados. Registros legados que tenham
+        // cliente_id continuam protegidos pelas condições abaixo.
+        !exists(/databases/$(database)/documents/ocupacoes/$(id))
+        || !resource.data.keys().hasAll(['cliente_id'])
+        || resource.data.cliente_id == request.auth.uid
+        || ehAdmin()
+        || ehBarbeiroDo(resource.data.barbeiro_id)
+      );
+      allow list: if false;
+      allow create: if ehAdmin()
+        || (logado()
+          && ocupacaoDeAgendamentoValida(id)
+          && (getAfter(/databases/$(database)/documents/agendamentos/$(request.resource.data.agendamento_id)).data.cliente_id == request.auth.uid
+            || ehBarbeiroDo(request.resource.data.barbeiro_id)))
+        || (logado()
+          && ocupacaoDeBloqueioValida(id)
+          && ehBarbeiroDo(request.resource.data.barbeiro_id));
+      allow update: if false;
+      allow delete: if ehAdmin()
+        || (ocupacaoDeReservaFoiLiberada()
+          && (getAfter(/databases/$(database)/documents/agendamentos/$(resource.data.agendamento_id)).data.cliente_id == request.auth.uid
+            || ehBarbeiroDo(resource.data.barbeiro_id)))
+        || (ocupacaoDeBloqueioFoiLiberada()
+          && ehBarbeiroDo(resource.data.barbeiro_id));
+    }
+
+    match /bloqueios/{id} {
+      allow get, list: if ehAdmin() || ehBarbeiroDo(resource.data.barbeiro_id);
+      allow create: if (ehAdmin() || ehBarbeiroDo(request.resource.data.barbeiro_id))
+        && bloqueioValido(id);
+      allow update: if false;
+      allow delete: if ehAdmin()
+        || (ehBarbeiroDo(resource.data.barbeiro_id)
+          && resource.data.keys().hasAll(['barbeiro_id', 'data', 'inicio', 'fim', 'duracao']));
+    }
+
+    // Mapa UID -> barbeiro: somente admin pode criar, mudar ou apagar vínculos.
+    match /vinculos_barbeiro/{uid} {
+      allow read, write: if ehAdmin();
+    }
+
+    // V2 — leitura paralela exclusiva do Dual Read. O legado continua sendo
+    // a fonte operacional; nenhuma escrita V2 é exposta ao navegador nesta fase.
+    function v2MembroExiste(tenantId) {
+      return logado()
+        && exists(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(request.auth.uid));
+    }
+
+    function v2MembroAtivo(tenantId) {
+      return v2MembroExiste(tenantId)
+        && get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(request.auth.uid)).data.ativo == true;
+    }
+
+    function v2TemPapel(tenantId, papel) {
+      return v2MembroAtivo(tenantId)
+        && get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(request.auth.uid)).data.papeis is list
+        && papel in get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(request.auth.uid)).data.papeis;
+    }
+
+    function v2Admin(tenantId) {
+      return v2TemPapel(tenantId, 'ADMIN');
+    }
+
+    function v2Barbeiro(tenantId) {
+      return v2TemPapel(tenantId, 'BARBEIRO');
+    }
+
+    function v2BarbeiroId(tenantId) {
+      return get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(request.auth.uid)).data.barbeiro_id;
+    }
+
+    match /system/{id} {
+      allow read: if logado();
+      allow write: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if logado() && uid == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /barbearias/{tenantId} {
+      allow get: if logado();
+      allow list, write: if false;
+
+      match /membros/{uid} {
+        allow get: if v2Admin(tenantId) || (v2MembroAtivo(tenantId) && uid == request.auth.uid);
+        allow list, write: if false;
+      }
+
+      match /clientes/{uid} {
+        allow get: if uid == request.auth.uid || v2Admin(tenantId) || v2Barbeiro(tenantId);
+        allow list: if v2Admin(tenantId) || v2Barbeiro(tenantId);
+        allow write: if false;
+      }
+
+      match /barbeiros/{id} {
+        allow read: if v2MembroAtivo(tenantId);
+        allow write: if false;
+      }
+
+      match /servicos/{id} {
+        allow read: if v2MembroAtivo(tenantId);
+        allow write: if false;
+      }
+
+      match /configuracoes/{id} {
+        allow read: if v2MembroAtivo(tenantId);
+        allow write: if false;
+      }
+
+      match /bloqueios/{id} {
+        allow read: if v2Admin(tenantId)
+          || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId));
+        allow write: if false;
+      }
+
+      match /agendamentos/{id} {
+        allow read: if v2Admin(tenantId)
+          || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId))
+          || (logado() && resource.data.cliente_id == request.auth.uid);
+        allow write: if false;
+      }
+
+      match /ocupacoes/{id} {
+        allow read: if v2MembroAtivo(tenantId);
+        allow write: if false;
+      }
+
+      match /planos_assinatura/{id} {
+        allow read: if v2MembroAtivo(tenantId);
+        allow write: if false;
+      }
+
+      match /assinaturas/{id} {
+        allow read: if v2Admin(tenantId) || v2Barbeiro(tenantId)
+          || (logado() && resource.data.cliente_id == request.auth.uid);
+        allow write: if false;
+      }
+
+      match /historico_assinaturas/{id} {
+        allow read: if v2Admin(tenantId) || v2Barbeiro(tenantId)
+          || (logado() && resource.data.cliente_id == request.auth.uid);
+        allow write: if false;
+      }
+
+      match /fechamentos/{id} {
+        allow read: if v2Admin(tenantId)
+          || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId));
+        allow write: if false;
+      }
+
+      match /financeiro/{document=**} {
+        allow read: if v2Admin(tenantId);
+        allow write: if false;
+      }
+
+      // Logs do Dual Read são gravados somente pela Cloud Function com IAM
+      // mínimo. O navegador, inclusive Admin, nunca pode criá-los ou alterá-los.
+      match /audit_logs/{id} {
+        allow read: if v2Admin(tenantId);
+        allow write: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // Toda coleção não mapeada explicitamente fica fechada por padrão.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,113 @@
+rules_version = '2';
+
+// Regras exclusivas de homologação para Dual Write. O navegador pode apenas
+// ler o necessário; toda escrita operacional passa pela Cloud Function.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() { return request.auth != null; }
+    function uidEfetivo() {
+      return get(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid)).data.uid_producao_referencia;
+    }
+    function possuiMapeamentoAtivo() {
+      return autenticado()
+        && exists(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid))
+        && get(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid)).data.ativo == true
+        && uidEfetivo() is string;
+    }
+    function admin() {
+      return possuiMapeamentoAtivo() && exists(/databases/$(database)/documents/admins/$(uidEfetivo()));
+    }
+    function barbeiro() {
+      return possuiMapeamentoAtivo()
+        && barbeiroId() is string
+        && exists(/databases/$(database)/documents/barbeiros/$(barbeiroId()))
+        && get(/databases/$(database)/documents/barbeiros/$(barbeiroId())).data.ativo == true
+        && get(/databases/$(database)/documents/barbeiros/$(barbeiroId())).data.uid_usuario == uidEfetivo();
+    }
+    function barbeiroId() {
+      return get(/databases/$(database)/documents/homologacao_mapeamentos/$(request.auth.uid)).data.barbeiro_id;
+    }
+    function donoCliente(uid) { return possuiMapeamentoAtivo() && uid == uidEfetivo(); }
+    function podeLerAgendamento() {
+      return admin()
+        || (barbeiro() && resource.data.barbeiro_id == barbeiroId())
+        || donoCliente(resource.data.cliente_id);
+    }
+
+    match /homologacao_mapeamentos/{testUid} {
+      allow read: if autenticado() && testUid == request.auth.uid;
+      allow write: if false;
+    }
+    match /system/{id} { allow read: if autenticado(); allow write: if false; }
+    match /migration_logs/{id} { allow read: if admin(); allow write: if false; }
+
+    // Legado: ainda é a fonte visual em legacy, porém não aceita escrita web.
+    match /clientes/{uid} { allow read: if donoCliente(uid) || admin() || barbeiro(); allow write: if false; }
+    match /admins/{uid} { allow read: if admin() || donoCliente(uid); allow write: if false; }
+    match /barbeiros/{id} { allow read: if autenticado(); allow write: if false; }
+    match /servicos/{id} { allow read: if autenticado(); allow write: if false; }
+    match /configuracoes/{id} { allow read: if autenticado(); allow write: if false; }
+    match /fechamentos_globais/{id} { allow read: if autenticado(); allow write: if false; }
+    match /planos_assinatura/{id} { allow read: if autenticado(); allow write: if false; }
+    match /solicitacoes_assinatura/{id} {
+      allow read: if admin() || donoCliente(resource.data.cliente_id);
+      allow write: if false;
+    }
+    match /historico_assinaturas/{id} {
+      allow read: if admin() || (barbeiro() && resource.data.barbeiro_id == barbeiroId()) || donoCliente(resource.data.cliente_id);
+      allow write: if false;
+    }
+    match /agendamentos/{id} { allow read: if podeLerAgendamento(); allow write: if false; }
+    match /ocupacoes/{id} {
+      // A tela de disponibilidade consulta slots pontuais; listagem continua restrita.
+      allow get: if autenticado();
+      allow list: if admin() || barbeiro();
+      allow write: if false;
+    }
+    match /bloqueios/{id} {
+      allow read: if admin() || (barbeiro() && resource.data.barbeiro_id == barbeiroId());
+      allow write: if false;
+    }
+    match /vinculos_barbeiro/{uid} { allow read: if admin(); allow write: if false; }
+    match /usuarios/{uid} { allow read: if donoCliente(uid); allow write: if false; }
+
+    // V2: mesmas identidades de teste, nenhuma escrita direta no navegador.
+    function membroAtivo(tenantId) {
+      return possuiMapeamentoAtivo()
+        && exists(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo()))
+        && get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo())).data.ativo == true;
+    }
+    function temPapel(tenantId, papel) {
+      return membroAtivo(tenantId)
+        && papel in get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo())).data.papeis;
+    }
+    function v2Admin(tenantId) { return temPapel(tenantId, 'ADMIN'); }
+    function v2Barbeiro(tenantId) { return temPapel(tenantId, 'BARBEIRO'); }
+    function v2BarbeiroId(tenantId) {
+      return get(/databases/$(database)/documents/barbearias/$(tenantId)/membros/$(uidEfetivo())).data.barbeiro_id;
+    }
+    match /barbearias/{tenantId} {
+      allow get: if autenticado();
+      allow list, write: if false;
+      match /membros/{uid} { allow get: if v2Admin(tenantId) || (membroAtivo(tenantId) && uid == uidEfetivo()); allow list, write: if false; }
+      match /clientes/{uid} { allow read: if uid == uidEfetivo() || v2Admin(tenantId) || v2Barbeiro(tenantId); allow write: if false; }
+      match /barbeiros/{id} { allow read: if membroAtivo(tenantId); allow write: if false; }
+      match /servicos/{id} { allow read: if membroAtivo(tenantId); allow write: if false; }
+      match /configuracoes/{id} { allow read: if membroAtivo(tenantId); allow write: if false; }
+      match /bloqueios/{id} { allow read: if v2Admin(tenantId) || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId)); allow write: if false; }
+      match /agendamentos/{id} {
+        allow read: if v2Admin(tenantId) || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId)) || donoCliente(resource.data.cliente_id);
+        allow write: if false;
+      }
+      match /ocupacoes/{id} { allow read: if membroAtivo(tenantId); allow write: if false; }
+      match /planos_assinatura/{id} { allow read: if membroAtivo(tenantId); allow write: if false; }
+      match /assinaturas/{id} { allow read: if v2Admin(tenantId) || v2Barbeiro(tenantId) || donoCliente(resource.data.cliente_id); allow write: if false; }
+      match /historico_assinaturas/{id} { allow read: if v2Admin(tenantId) || v2Barbeiro(tenantId) || donoCliente(resource.data.cliente_id); allow write: if false; }
+      match /fechamentos/{id} { allow read: if v2Admin(tenantId) || (v2Barbeiro(tenantId) && resource.data.barbeiro_id == v2BarbeiroId(tenantId)); allow write: if false; }
+      match /financeiro/{document=**} { allow read: if v2Admin(tenantId); allow write: if false; }
+      match /audit_logs/{id} { allow read: if v2Admin(tenantId); allow write: if false; }
+      match /{document=**} { allow read, write: if false; }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

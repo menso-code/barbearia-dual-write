@@ -1,0 +1,950 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Barbearia Antunes — Painel Administrativo</title>
+    <meta name="theme-color" content="#080a09" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="img/favicon-round.png" />
+    <link rel="apple-touch-icon" href="img/logo-192.png" />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body class="admin-page">
+    <!-- Tela mostrada enquanto verifica permissão, ou se o usuário não for admin -->
+    <div class="locked-screen" id="locked-screen" style="display: none">
+      <div class="card">
+        <h2 style="margin-bottom: 10px">Acesso restrito</h2>
+        <p style="color: var(--cinza); margin-bottom: 20px">
+          Esta área é exclusiva para administradores da Barbearia Antunes.
+        </p>
+        <a class="btn btn-block" href="app.html">Voltar para minha conta</a>
+      </div>
+    </div>
+
+    <div id="admin-shell" style="display: none">
+      <div class="topbar">
+        <div class="brand">
+          <img class="brand-logo" src="img/logo.png" alt="Barbearia Antunes" />
+          Barbearia<span class="brand-dot">Antunes</span>
+          <small>&nbsp;admin</small>
+        </div>
+        <div class="nav-actions">
+          <a class="btn btn-ghost btn-sm" href="app.html">Área do cliente</a>
+          <button class="btn btn-ghost btn-sm" data-logout>Sair</button>
+        </div>
+      </div>
+
+      <div class="container">
+        <h1 class="sr-only">Painel administrativo</h1>
+
+        <nav class="sub-nav admin-nav" aria-label="Seções administrativas">
+          <button class="active" data-view="equipe">Barbeiros</button>
+          <button data-view="servicos">Serviços</button>
+          <button data-view="assinaturas">Assinaturas</button>
+          <button data-view="agenda">Todos os agendamentos</button>
+          <button data-view="funcionamento">Funcionamento</button>
+          <button data-view="relatorios">Financeiro</button>
+        </nav>
+
+        <!-- ===================== BARBEIROS ===================== -->
+        <section class="view active" id="view-equipe">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Equipe</span>
+              <h2>Barbeiros cadastrados</h2>
+            </div>
+            <button class="btn btn-primary" id="btn-novo-barbeiro">
+              + Novo barbeiro
+            </button>
+          </div>
+          <p class="limit-note" id="limite-barbeiros"></p>
+          <div class="admin-grid" id="admin-barbeiros-grid"></div>
+        </section>
+
+        <!-- ===================== SERVIÇOS ===================== -->
+        <section class="view" id="view-servicos">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Catálogo</span>
+              <h2>Serviços oferecidos</h2>
+            </div>
+            <div style="display: flex; gap: 10px">
+              <button class="btn btn-ghost" id="btn-importar-servicos">
+                Importar catálogo Antunes (39)
+              </button>
+              <button class="btn btn-primary" id="btn-novo-servico">
+                + Novo serviço
+              </button>
+            </div>
+          </div>
+          <p class="limit-note" id="importar-msg"></p>
+          <div class="table-wrap" id="servicos-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Descrição</th>
+                  <th>Duração</th>
+                  <th>Preço</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="admin-servicos-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ===================== ASSINATURAS ===================== -->
+        <section class="view" id="view-assinaturas">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Planos mensais</span>
+              <h2>Assinaturas</h2>
+            </div>
+            <button
+              class="btn btn-primary"
+              id="btn-nova-assinatura"
+              type="button"
+            >
+              + Novo plano
+            </button>
+          </div>
+          <p class="limit-note">
+            Os atendimentos da assinatura serão realizados pelo barbeiro
+            disponível no dia e horário escolhidos. Nesta etapa, os planos são
+            apenas cadastrados e gerenciados aqui.
+          </p>
+          <p
+            class="agenda-refresh-feedback"
+            id="assinaturas-feedback"
+            aria-live="polite"
+          ></p>
+          <div class="assinaturas-grid" id="admin-assinaturas-grid"></div>
+
+          <div class="section-head assinaturas-solicitacoes-head">
+            <div>
+              <span class="eyebrow">Gestão de clientes</span>
+              <h3>Assinantes</h3>
+            </div>
+          </div>
+          <div class="assinaturas-gestao-filtros">
+            <div
+              class="assinaturas-gestao-tabs"
+              role="tablist"
+              aria-label="Status das assinaturas"
+            >
+              <button
+                class="active"
+                type="button"
+                data-filtro-assinatura="PENDENTES"
+              >
+                Pendentes
+              </button>
+              <button type="button" data-filtro-assinatura="ATIVOS">
+                Ativos
+              </button>
+              <button type="button" data-filtro-assinatura="EXPIRADOS">
+                Expirados
+              </button>
+              <button type="button" data-filtro-assinatura="CANCELADOS">
+                Cancelados
+              </button>
+            </div>
+            <div class="assinaturas-busca">
+              <label class="sr-only" for="assinaturas-busca"
+                >Buscar assinantes</label
+              >
+              <svg
+                class="assinaturas-busca-icone"
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m20 20-4-4"></path>
+              </svg>
+              <input
+                id="assinaturas-busca"
+                type="search"
+                autocomplete="off"
+                placeholder="Buscar por nome, telefone ou e-mail..."
+              />
+              <button
+                class="btn btn-ghost btn-sm"
+                id="assinaturas-limpar-busca"
+                type="button"
+                hidden
+              >
+                Limpar busca
+              </button>
+            </div>
+          </div>
+          <p
+            class="agenda-refresh-feedback"
+            id="solicitacoes-assinatura-feedback"
+            aria-live="polite"
+          ></p>
+          <div
+            class="solicitacoes-assinatura-grid"
+            id="solicitacoes-assinatura-grid"
+          ></div>
+          <div class="section-head assinaturas-solicitacoes-head">
+            <div>
+              <span class="eyebrow">Registros permanentes</span>
+              <h3>Histórico de utilização</h3>
+            </div>
+          </div>
+          <div
+            class="historico-assinaturas-lista"
+            id="historico-assinaturas-lista"
+          ></div>
+        </section>
+
+        <!-- ===================== AGENDAMENTOS ===================== -->
+        <section class="view" id="view-agenda">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Visão geral</span>
+              <h2>Todos os agendamentos</h2>
+            </div>
+            <div class="agenda-header-actions">
+              <button
+                class="btn btn-ghost btn-sm"
+                id="btn-atualizar-agenda"
+                type="button"
+              >
+                ↻ Atualizar
+              </button>
+              <button class="btn btn-primary" id="btn-novo-agendamento">
+                + Novo agendamento
+              </button>
+            </div>
+          </div>
+          <div class="agenda-filters" aria-label="Filtros de agendamentos">
+            <div class="agenda-periods" role="group" aria-label="Período">
+              <button class="active" data-periodo="todos">Todos</button
+              ><button data-periodo="hoje">Hoje</button
+              ><button data-periodo="amanha">Amanhã</button
+              ><button data-periodo="semana">Semana</button
+              ><button data-periodo="mes">Mês</button>
+            </div>
+            <select class="field-inline" id="agenda-filtro-barbeiro">
+              <option value="">Todos os barbeiros</option>
+            </select>
+            <select class="field-inline" id="agenda-filtro-status">
+              <option value="">Todos os status</option>
+              <option value="agendado">Agendado</option>
+              <option value="cliente_chegou">Cliente chegou</option>
+              <option value="em_atendimento">Em atendimento</option>
+              <option value="concluido">Concluído</option>
+              <option value="cancelado">Cancelado</option>
+              <option value="nao_compareceu">Não compareceu</option>
+            </select>
+            <select class="field-inline" id="agenda-filtro-servico">
+              <option value="">Todos os serviços</option>
+            </select>
+            <input
+              class="field-inline"
+              id="agenda-busca"
+              type="search"
+              placeholder="Buscar cliente..."
+              aria-label="Buscar cliente por nome ou telefone"
+            />
+            <select class="field-inline" id="agenda-ordenacao">
+              <option value="proximos">Próximos primeiro</option>
+              <option value="recentes">Mais recentes</option>
+              <option value="antigos">Mais antigos</option>
+              <option value="horario">Horário</option>
+            </select>
+            <button
+              class="btn btn-ghost btn-sm"
+              id="agenda-limpar-filtros"
+              hidden
+            >
+              Limpar filtros
+            </button>
+          </div>
+          <div class="agenda-results-bar">
+            <span id="agenda-contador" aria-live="polite"></span
+            ><label
+              >Por página
+              <select class="field-inline" id="agenda-tamanho-pagina">
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select></label
+            >
+          </div>
+          <div
+            class="agenda-refresh-feedback"
+            id="agenda-atualizada-feedback"
+            aria-live="polite"
+          ></div>
+          <div class="table-wrap agenda-table-wrap">
+            <table class="agenda-table">
+              <colgroup>
+                <col class="col-data" />
+                <col class="col-cliente" />
+                <col class="col-telefone" />
+                <col class="col-barbeiro" />
+                <col class="col-servico" />
+                <col class="col-status" />
+                <col class="col-acoes" />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Data / hora</th>
+                  <th>Cliente</th>
+                  <th>WhatsApp</th>
+                  <th>Barbeiro</th>
+                  <th>Serviço</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="admin-agenda-body"></tbody>
+            </table>
+          </div>
+          <div class="agenda-cards" id="admin-agenda-cards"></div>
+          <nav
+            class="agenda-pagination"
+            id="agenda-paginacao"
+            aria-label="Paginação"
+          >
+            <button class="btn btn-ghost btn-sm" id="agenda-anterior">
+              ← Anterior</button
+            ><span id="agenda-pagina"></span
+            ><button class="btn btn-ghost btn-sm" id="agenda-proxima">
+              Próxima →
+            </button>
+          </nav>
+        </section>
+
+        <!-- ===================== FUNCIONAMENTO ===================== -->
+        <section class="view" id="view-funcionamento">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Configuração global</span>
+              <h2>Funcionamento</h2>
+            </div>
+            <button
+              class="btn btn-primary"
+              id="btn-salvar-funcionamento"
+              type="button"
+            >
+              Salvar funcionamento
+            </button>
+          </div>
+          <p class="limit-note">
+            Dias fechados impedem novos agendamentos para todos os barbeiros. Os
+            agendamentos já existentes são preservados.
+          </p>
+          <div class="account-card funcionamento-card">
+            <span class="eyebrow">Fechamento semanal</span>
+            <div class="funcionamento-semana" id="funcionamento-semana">
+              <label
+                ><input type="checkbox" id="func-semana-1" /> Segunda-feira
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-2" /> Terça-feira
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-3" /> Quarta-feira
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-4" /> Quinta-feira
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-5" /> Sexta-feira
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-6" /> Sábado
+                <span>Fechado</span></label
+              >
+              <label
+                ><input type="checkbox" id="func-semana-0" /> Domingo
+                <span>Fechado</span></label
+              >
+            </div>
+            <div
+              class="agenda-refresh-feedback"
+              id="funcionamento-feedback"
+              aria-live="polite"
+            ></div>
+          </div>
+          <div class="section-head funcionamento-lista-head">
+            <div>
+              <span class="eyebrow">Exceções</span>
+              <h3>Dias fechados</h3>
+            </div>
+            <button
+              class="btn btn-primary"
+              id="btn-novo-fechamento"
+              type="button"
+            >
+              + Adicionar dia fechado
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Motivo</th>
+                  <th>Tipo</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody id="fechamentos-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ===================== RELATÓRIOS ===================== -->
+        <section class="view" id="view-relatorios">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Gestão financeira</span>
+              <h2>Dashboard financeiro</h2>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-atualizar-relatorio">
+              ↻ Atualizar
+            </button>
+          </div>
+          <div
+            class="finance-filters"
+            aria-label="Filtros do dashboard financeiro"
+          >
+            <div class="field">
+              <label for="relatorio-data-inicio">Data inicial</label
+              ><input id="relatorio-data-inicio" type="date" />
+            </div>
+            <div class="field">
+              <label for="relatorio-data-fim">Data final</label
+              ><input id="relatorio-data-fim" type="date" />
+            </div>
+            <div class="field">
+              <label for="relatorio-barbeiro">Barbeiro</label
+              ><select id="relatorio-barbeiro">
+                <option value="">Todos os barbeiros</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="relatorio-status">Status</label
+              ><select id="relatorio-status">
+                <option value="">Todos os status</option>
+                <option value="agendado">Agendado</option>
+                <option value="cliente_chegou">Cliente chegou</option>
+                <option value="em_atendimento">Em atendimento</option>
+                <option value="concluido">Concluído</option>
+                <option value="cancelado">Cancelado</option>
+                <option value="nao_compareceu">Não compareceu</option>
+              </select>
+            </div>
+          </div>
+          <p class="limit-note">
+            Os valores usam o preço registrado no agendamento e, quando ele não
+            existir, o preço atual do serviço. Serviços sem preço fixo não
+            entram no faturamento ou ticket médio.
+          </p>
+          <p
+            class="finance-feedback"
+            id="relatorio-feedback"
+            aria-live="polite"
+          ></p>
+
+          <div
+            class="finance-metrics"
+            id="relatorio-resumo"
+            aria-live="polite"
+          ></div>
+
+          <div class="finance-dashboard-grid">
+            <article class="finance-panel finance-panel-chart">
+              <div class="finance-panel-head">
+                <div>
+                  <span class="eyebrow">Receita</span>
+                  <h3>Faturamento por dia</h3>
+                </div>
+                <span class="finance-panel-note" id="finance-chart-note"></span>
+              </div>
+              <div class="finance-chart-legend" aria-label="Legenda do gráfico">
+                <span><i class="finance-legend-realized"></i>Realizado</span
+                ><span><i class="finance-legend-forecast"></i>Previsto</span>
+              </div>
+              <div class="finance-chart-wrap">
+                <canvas
+                  id="finance-revenue-chart"
+                  role="img"
+                  aria-label="Gráfico de faturamento realizado e previsto por dia"
+                ></canvas>
+                <div
+                  class="finance-empty-chart"
+                  id="finance-chart-empty"
+                  hidden
+                >
+                  Não há faturamento realizado ou previsto no período.
+                </div>
+              </div>
+            </article>
+            <article class="finance-panel">
+              <div class="finance-panel-head">
+                <div>
+                  <span class="eyebrow">Equipe</span>
+                  <h3>Desempenho por barbeiro</h3>
+                </div>
+              </div>
+              <div class="finance-performance" id="relatorio-body"></div>
+            </article>
+            <article class="finance-panel">
+              <div class="finance-panel-head">
+                <div>
+                  <span class="eyebrow">Serviços</span>
+                  <h3>Mais realizados</h3>
+                </div>
+              </div>
+              <ol class="finance-ranking" id="finance-service-ranking"></ol>
+            </article>
+            <article class="finance-panel finance-panel-stats">
+              <div class="finance-panel-head">
+                <div>
+                  <span class="eyebrow">Agenda</span>
+                  <h3>Indicadores operacionais</h3>
+                </div>
+              </div>
+              <div class="finance-operational" id="finance-operational"></div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: APROVAR SOLICITAÇÃO ===================== -->
+    <div class="modal-backdrop" id="modal-aprovar-assinatura">
+      <div
+        class="modal modal-confirmation"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="aprovar-assinatura-titulo"
+      >
+        <span class="eyebrow">Ativação presencial</span>
+        <h3 id="aprovar-assinatura-titulo">Aprovar assinatura?</h3>
+        <p
+          class="assinatura-confirmacao-plano"
+          id="aprovar-assinatura-resumo"
+        ></p>
+        <p>Confirme que o pagamento foi recebido presencialmente.</p>
+        <div id="aprovar-assinatura-msg" class="msg" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-block"
+            id="btn-cancelar-aprovacao-assinatura"
+          >
+            Voltar</button
+          ><button
+            type="button"
+            class="btn btn-primary btn-block"
+            id="btn-confirmar-aprovacao-assinatura"
+          >
+            Confirmar aprovação
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: CADASTRAR/EDITAR PLANO ===================== -->
+    <div class="modal-backdrop" id="modal-assinatura">
+      <div class="modal">
+        <span class="eyebrow">Planos mensais</span>
+        <h3 id="modal-assinatura-titulo">Novo plano</h3>
+        <div id="modal-assinatura-msg" class="msg" aria-live="polite"></div>
+        <form id="form-assinatura">
+          <input type="hidden" id="a-id" />
+          <div class="field">
+            <label for="a-nome">Nome do plano</label
+            ><input
+              id="a-nome"
+              maxlength="80"
+              required
+              placeholder="Ex.: Essencial"
+            />
+          </div>
+          <div class="field">
+            <label for="a-descricao">Descrição</label
+            ><input
+              id="a-descricao"
+              maxlength="220"
+              required
+              placeholder="Ex.: 4 cortes por mês"
+            />
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="a-preco">Preço mensal</label
+              ><input
+                id="a-preco"
+                inputmode="decimal"
+                required
+                placeholder="Ex.: 99,90"
+              />
+            </div>
+            <div class="field">
+              <label for="a-usos">Usos por mês</label
+              ><input
+                id="a-usos"
+                type="number"
+                min="1"
+                max="99"
+                step="1"
+                required
+                placeholder="4"
+              />
+            </div>
+          </div>
+          <div class="field">
+            <label for="a-servicos">Serviços incluídos</label
+            ><select id="a-servicos" multiple size="5" required aria-describedby="a-servicos-ajuda"></select>
+            <p class="limit-note" id="a-servicos-ajuda">Selecione os serviços reais incluídos no plano. Para múltiplos itens, use Ctrl (Windows) ou ⌘ (Mac).</p>
+          </div>
+          <div class="field">
+            <label for="a-ativo">Status</label
+            ><select id="a-ativo">
+              <option value="true">Ativo</option>
+              <option value="false">Inativo</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn btn-ghost btn-block"
+              id="btn-fechar-modal-assinatura"
+            >
+              Cancelar</button
+            ><button type="submit" class="btn btn-primary btn-block">
+              Salvar plano
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: FECHAMENTO GLOBAL ===================== -->
+    <div class="modal-backdrop" id="modal-fechamento-global">
+      <div class="modal">
+        <span class="eyebrow">Funcionamento</span>
+        <h3>Adicionar dia fechado</h3>
+        <div id="fechamento-msg" class="msg"></div>
+        <form id="form-fechamento-global">
+          <div class="field">
+            <label for="fechamento-tipo">Tipo</label
+            ><select id="fechamento-tipo">
+              <option value="dia">Dia inteiro</option>
+              <option value="periodo">Período</option>
+            </select>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="fechamento-inicio">Data inicial</label
+              ><input id="fechamento-inicio" type="date" required />
+            </div>
+            <div class="field" id="fechamento-fim-field" hidden>
+              <label for="fechamento-fim">Data final</label
+              ><input id="fechamento-fim" type="date" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="fechamento-motivo">Motivo</label
+            ><input
+              id="fechamento-motivo"
+              maxlength="100"
+              placeholder="Ex.: Feriado, Natal ou Recesso"
+            />
+          </div>
+          <div class="modal-actions">
+            <button
+              class="btn btn-ghost btn-block"
+              id="btn-fechar-modal-fechamento"
+              type="button"
+            >
+              Cancelar</button
+            ><button class="btn btn-primary btn-block" type="submit">
+              Salvar fechamento
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: NOVO AGENDAMENTO INTERNO ===================== -->
+    <div class="modal-backdrop" id="modal-novo-agendamento">
+      <div class="modal">
+        <span class="eyebrow">Agenda interna</span>
+        <h3>Novo agendamento</h3>
+        <div id="novo-agendamento-msg" class="msg"></div>
+        <form id="form-novo-agendamento">
+          <div class="field">
+            <label for="novo-cliente">Cliente cadastrado</label
+            ><select id="novo-cliente">
+              <option value="">Cliente presencial / novo</option>
+            </select>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="novo-cliente-nome">Nome</label
+              ><input id="novo-cliente-nome" required />
+            </div>
+            <div class="field">
+              <label for="novo-cliente-telefone">WhatsApp</label
+              ><input
+                id="novo-cliente-telefone"
+                placeholder="(11) 99999-9999"
+              />
+            </div>
+          </div>
+          <div class="field">
+            <label for="novo-barbeiro">Barbeiro</label
+            ><select id="novo-barbeiro" required></select>
+          </div>
+          <div class="field">
+            <label for="novo-servico">Serviço</label
+            ><select id="novo-servico" required></select>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="novo-data">Data</label
+              ><input id="novo-data" type="date" required />
+            </div>
+            <div class="field">
+              <label for="novo-horario">Horário</label
+              ><select id="novo-horario" required>
+                <option value="">Escolha data, barbeiro e serviço</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button
+              type="button"
+              class="btn btn-ghost btn-block"
+              id="btn-fechar-novo-agendamento"
+            >
+              Cancelar</button
+            ><button type="submit" class="btn btn-primary btn-block">
+              Confirmar agendamento
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: CONCLUIR ATENDIMENTO ===================== -->
+    <div class="modal-backdrop" id="modal-concluir-atendimento">
+      <div class="modal modal-confirmation">
+        <span class="eyebrow">Confirmar presença</span>
+        <h3>Concluir atendimento?</h3>
+        <p>Confirme que o cliente compareceu e o atendimento foi realizado.</p>
+        <dl class="completion-details" id="completion-details"></dl>
+        <div class="modal-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-block"
+            id="btn-voltar-conclusao"
+          >
+            Voltar
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary btn-block"
+            id="btn-confirmar-conclusao"
+          >
+            Confirmar conclusão
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: CADASTRAR/EDITAR BARBEIRO ===================== -->
+    <div class="modal-backdrop" id="modal-barbeiro">
+      <div class="modal">
+        <h3 id="modal-titulo">Novo barbeiro</h3>
+        <div id="modal-msg" class="msg"></div>
+        <form id="form-barbeiro">
+          <input type="hidden" id="b-id" />
+          <div class="field">
+            <label for="b-nome">Nome</label>
+            <input id="b-nome" required />
+          </div>
+          <div class="field barber-photo-field">
+            <label for="b-foto-file">Foto do barbeiro</label>
+            <div class="barber-photo-upload">
+              <div class="barber-photo-preview" id="b-foto-preview-wrap">
+                <img
+                  id="b-foto-preview"
+                  alt="Prévia da foto do barbeiro"
+                  hidden
+                />
+                <span id="b-foto-placeholder">Sem foto</span>
+              </div>
+              <div class="barber-photo-upload-actions">
+                <label class="btn btn-ghost btn-sm" for="b-foto-file"
+                  >Escolher foto</label
+                >
+                <button
+                  class="btn btn-ghost btn-sm"
+                  type="button"
+                  id="btn-remover-foto"
+                >
+                  Remover foto
+                </button>
+                <input
+                  id="b-foto-file"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                />
+                <p>JPG, PNG ou WebP, até 5 MB.</p>
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            <label for="b-especialidade">Especialidade</label>
+            <input
+              id="b-especialidade"
+              placeholder="Ex: Corte clássico e barba"
+            />
+          </div>
+          <div class="field">
+            <label for="b-descricao">Descrição curta</label>
+            <input
+              id="b-descricao"
+              placeholder="Uma frase sobre o estilo do barbeiro"
+            />
+          </div>
+          <div class="field">
+            <label>Conta de acesso</label>
+            <div class="account-link-status" id="b-conta-status">
+              ○ Nenhuma conta vinculada
+            </div>
+            <p class="limit-note" id="b-conta-detalhes">
+              Defina o e-mail com que este profissional criará ou acessará a
+              conta.
+            </p>
+            <label for="b-email-acesso">E-mail autorizado</label>
+            <input
+              id="b-email-acesso"
+              type="email"
+              placeholder="profissional@exemplo.com"
+              autocomplete="email"
+            />
+            <input id="b-uid-usuario" type="hidden" />
+            <div class="modal-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-block"
+                id="btn-validar-vinculo"
+              >
+                Validar e-mail</button
+              ><button
+                type="button"
+                class="btn btn-danger btn-block"
+                id="btn-desvincular-conta"
+                hidden
+              >
+                Desvincular conta
+              </button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="b-ativo">Status</label>
+            <select id="b-ativo">
+              <option value="true">Ativo (visível para clientes)</option>
+              <option value="false">Inativo (oculto)</option>
+            </select>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 10px">
+            <button
+              type="button"
+              class="btn btn-ghost btn-block"
+              id="btn-fechar-modal"
+            >
+              Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary btn-block">
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ===================== MODAL: CADASTRAR/EDITAR SERVIÇO ===================== -->
+    <div class="modal-backdrop" id="modal-servico">
+      <div class="modal">
+        <h3 id="modal-servico-titulo">Novo serviço</h3>
+        <div id="modal-servico-msg" class="msg"></div>
+        <form id="form-servico">
+          <input type="hidden" id="s-id" />
+          <div class="field">
+            <label for="s-nome">Nome do serviço</label>
+            <input id="s-nome" required placeholder="Ex: Corte clássico" />
+          </div>
+          <div class="field">
+            <label for="s-descricao">Descrição</label>
+            <input id="s-descricao" placeholder="Ex: Corte tesoura e máquina" />
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="s-duracao">Duração (minutos)</label>
+              <input
+                id="s-duracao"
+                type="number"
+                min="5"
+                step="5"
+                required
+                placeholder="30"
+              />
+            </div>
+            <div class="field">
+              <label for="s-preco">Preço</label>
+              <input
+                id="s-preco"
+                type="text"
+                required
+                placeholder="Ex: R$ 45,00 ou A partir de R$ 70,00 ou Consultar"
+              />
+            </div>
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 10px">
+            <button
+              type="button"
+              class="btn btn-ghost btn-block"
+              id="btn-fechar-modal-servico"
+            >
+              Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary btn-block">
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script type="module" src="js/admin.js"></script>
+    <script defer src="js/pwa-install.js"></script>
+  </body>
+</html>

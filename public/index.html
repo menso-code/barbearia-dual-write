@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Barbearia Antunes — Entrar</title>
+<meta name="theme-color" content="#080a09" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" type="image/png" href="img/favicon-round.png" />
+<link rel="apple-touch-icon" href="img/logo-192.png" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="auth-page">
+
+<div class="auth-shell">
+  <div class="auth-hero">
+    <img src="img/logo.png" alt="Barbearia Antunes" style="width:76px; height:76px; border-radius:50%; margin-bottom:22px;" />
+    <span class="kicker">Barbearia Antunes · Desde sempre, no capricho</span>
+    <h1>Estilo é um ritual.<br>Marque o seu.</h1>
+    <p>Agende com o barbeiro de sua confiança, acompanhe seus horários e viva a experiência completa da barbearia tudo em um só lugar.</p>
+  </div>
+
+  <div class="auth-panel">
+    <section class="auth-switcher" id="auth-switcher" aria-label="Acesso à conta">
+      <div class="auth-form-stage">
+        <div id="auth-msg" class="msg" role="alert" aria-live="polite"></div>
+        <div class="auth-form-track">
+          <!-- LOGIN -->
+          <form id="form-login" class="auth-form">
+            <span class="kicker">Acesse sua conta</span>
+            <h2>Bem-vindo</h2>
+            <p class="auth-form-intro">Entre para acompanhar seus horários e benefícios.</p>
+            <div class="field">
+              <label for="log-email">E-mail</label>
+              <input id="log-email" type="email" required autocomplete="email" />
+            </div>
+            <div class="field">
+              <label for="log-senha">Senha</label>
+              <input id="log-senha" type="password" required autocomplete="current-password" />
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+            <div class="auth-support" aria-label="Canais de contato">
+              <p>Precisa de ajuda ou quer acompanhar nosso trabalho?</p>
+              <div class="auth-support-actions">
+                <a class="auth-support-link" href="https://instagram.com/barbeariadoantuneees" target="_blank" rel="noopener noreferrer">Instagram</a>
+                <a class="auth-support-link auth-support-link--help" href="https://wa.me/5511948384110?text=Ol%C3%A1!%20Preciso%20de%20ajuda%20com%20o%20site%20da%20Barbearia%20Antunes.">Suporte</a>
+              </div>
+            </div>
+          </form>
+
+          <!-- CADASTRO -->
+          <form id="form-cadastro" class="auth-form" aria-hidden="true">
+            <span class="kicker">Novo cadastro</span>
+            <h2>Crie sua conta</h2>
+            <p class="auth-form-intro">Seus agendamentos e benefícios, sempre à mão.</p>
+            <div class="field">
+              <label for="cad-nome">Nome completo</label>
+              <input id="cad-nome" type="text" required />
+            </div>
+            <div class="field">
+              <label for="cad-telefone">WhatsApp</label>
+              <input id="cad-telefone" type="tel" inputmode="tel" placeholder="+55 11 99999-9999" required />
+            </div>
+            <div class="field">
+              <label for="cad-email">E-mail</label>
+              <input id="cad-email" type="email" required autocomplete="email" />
+            </div>
+            <div class="field">
+              <label for="cad-senha">Senha</label>
+              <input id="cad-senha" type="password" required minlength="6" autocomplete="new-password" />
+            </div>
+            <button type="submit" class="btn btn-primary btn-block">Criar conta</button>
+            <div class="auth-support" aria-label="Canais de contato">
+              <p>Precisa de ajuda ou quer acompanhar nosso trabalho?</p>
+              <div class="auth-support-actions">
+                <a class="auth-support-link" href="https://instagram.com/barbeariadoantuneees" target="_blank" rel="noopener noreferrer">Instagram</a>
+                <a class="auth-support-link auth-support-link--help" href="https://wa.me/5511948384110?text=Ol%C3%A1!%20Preciso%20de%20ajuda%20com%20o%20site%20da%20Barbearia%20Antunes.">Suporte</a>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <aside class="auth-mode-panel" aria-live="polite">
+        <div class="auth-mode-copy auth-mode-copy--login">
+          <span class="kicker">Barbearia Antunes</span>
+          <h2>Novo por aqui?</h2>
+          <p>Crie sua conta e comece a cuidar dos seus agendamentos.</p>
+          <button type="button" class="btn auth-mode-action" data-auth-mode="cadastro">Criar conta</button>
+        </div>
+        <div class="auth-mode-copy auth-mode-copy--cadastro" aria-hidden="true">
+          <span class="kicker">Barbearia Antunes</span>
+          <h2>Já possui uma conta?</h2>
+          <p>Entre para acessar seus horários, fidelidade e benefícios.</p>
+          <button type="button" class="btn auth-mode-action" data-auth-mode="login">Entrar</button>
+        </div>
+      </aside>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+  import { auth, onAuthStateChanged } from "./js/auth.js";
+  // Se já estiver logado, vai direto para a área do cliente.
+  onAuthStateChanged(auth, (user) => {
+    if (user && !sessionStorage.getItem("cadastroEmAndamento")) {
+      window.location.href = "app.html";
+    }
+  });
+</script>
+<script defer src="js/pwa-install.js"></script>
+</body>
+</html>

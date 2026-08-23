@@ -84,9 +84,9 @@ export async function criarAgendamento(_db, dados) {
 export async function reagendarAgendamento(_db, agendamento, dados) {
   return executarComandoOperacional("agenda.reagendar", { appointmentId: agendamento.id, data: dados });
 }
-export async function concluirAgendamento(_db, agendamento) { return executarComandoOperacional("agenda.concluir", { appointmentId: agendamento.id }); }
-export async function cancelarAgendamento(_db, agendamento) { return executarComandoOperacional("agenda.cancelar", { appointmentId: agendamento.id }); }
-export async function marcarNaoComparecimento(_db, agendamento) { return executarComandoOperacional("agenda.nao_compareceu", { appointmentId: agendamento.id }); }
-export async function liberarAgendamento(_db, agendamento, status) { return executarComandoOperacional(status === "cancelado" ? "agenda.cancelar" : "agenda.nao_compareceu", { appointmentId: agendamento.id }); }
+export async function concluirAgendamento(_db, agendamento) { return executarComandoOperacional("agenda.concluir", { data: { appointmentId: agendamento.id } }); }
+export async function cancelarAgendamento(_db, agendamento) { return executarComandoOperacional("agenda.cancelar", { data: { appointmentId: agendamento.id } }); }
+export async function marcarNaoComparecimento(_db, agendamento) { return executarComandoOperacional("agenda.nao_compareceu", { data: { appointmentId: agendamento.id } }); }
+export async function liberarAgendamento(_db, agendamento, status) { return executarComandoOperacional(status === "cancelado" ? "agenda.cancelar" : "agenda.nao_compareceu", { data: { appointmentId: agendamento.id } }); }
 export async function criarBloqueio(_db, dados) { return (await executarComandoOperacional("bloqueio.criar", { data: dados })).blockId; }
 export async function removerBloqueio(_db, bloqueio) { return executarComandoOperacional("bloqueio.remover", { blockId: bloqueio.id }); }

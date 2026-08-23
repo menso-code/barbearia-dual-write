@@ -1,16 +1,25 @@
 # CURRENT PRODUCTION STATE
 
-> **Estado canônico pós-go-live — atualizado em 21/08/2026**
+> **Estado canônico pós-go-live — atualizado em 23/08/2026**
 
 - GO_LIVE = **CONCLUÍDO**
 - POST_GO_LIVE_ENGINEERING_STATUS = **STABLE**
 - Projeto de produção: `barber-a01e7`
 - `executeOperationalCommand`: ACTIVE, Gen 2, `southamerica-east1`, Node.js 22.
-- Revisão: `executeoperationalcommand-00001-dec`.
+- Revisão: `executeoperationalcommand-00003-cel`.
 - `auditDualRead`: ACTIVE / PRESERVADA.
-- Hosting live: `5a35f5f7a503523b`.
+- Hosting live: versão `c0fa7920e0d74383`.
 - Baseline Hosting pré-cutover: `pre-cutover` / `0bf6114d9e83148e`; confirmar expiração antes de tratá-lo como rollback.
-- Rules ativo: `49df51e7-9d0e-404b-a866-87a94c1a3b37`.
+- Rules ativo: release `cloud.firestore`, ruleset `49df51e7-9d0e-404b-a866-87a94c1a3b37`.
+
+## Auditoria local pós-baseline — 23/08/2026
+
+- Baseline Git canônico: `v1.0.0-hml-validated` em `91728b96535b5a83e6eb84a13c7223286af18211`.
+- `DATA_MODEL_MULTI_TENANT = SIM` e `AUTHORIZATION_MULTI_TENANT = SIM`; `RUNTIME_TENANT_RESOLUTION = FIXED_TENANT` é uma limitação arquitetural conhecida.
+- Fingerprint SHA-256 confirmado para `public/js/agenda.js`: `5986FB990D06D80E900F4154FC94755D5ED34D606D6A40B2A92358AFF6756BEF`.
+- O drift encontrado nas transições de agenda do pacote HML foi corrigido localmente para usar `data.appointmentId`; nenhuma Function foi alterada.
+- Rollback Function confirmado para `executeoperationalcommand-00002-pos`; rollback Hosting apontado para `pre-cutover / 0bf6114d9e83148e`; a versão anterior de Rules continua não identificada.
+- Artefatos locais de credenciais/cache foram movidos para fora da árvore do projeto, preservando a cobertura do `.gitignore`.
 
 ## First controlled production flow
 
@@ -26,11 +35,13 @@ Runtime service account dedicada com role mínima Firestore; nenhuma chave criad
 
 ## P2 — backlog pós-go-live
 
-- Cobertura automatizada desigual dos comandos restantes.
+- Cobertura automatizada desigual dos cinco comandos diferidos por política.
 - Organização/arquivamento dos artefatos HML.
 - Revisão futura das mensagens de erro em logs.
 - Nome histórico `homologation-identity.js`.
 - Manutenção da documentação de contratos e rollback.
+- `.firebaserc` mantém produção como projeto padrão; deploy exige projeto explícito.
+- `RUNTIME_TENANT_RESOLUTION = FIXED_TENANT` permanece limitação arquitetural conhecida.
 
 > **HISTÓRICO/SUPERADO:** todo o conteúdo abaixo registra a preparação
 > anterior ao go-live. Qualquer ocorrência de `GO-LIVE BLOQUEADO`, Function

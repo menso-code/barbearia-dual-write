@@ -111,3 +111,14 @@ Não remover no dia do cutover. Elaborar plano separado somente após alguns dia
 - permissão acima do mínimo na credencial temporária;
 - impacto percebido por usuários;
 - impossibilidade de provar rollback.
+
+## Matriz de rollback do baseline pós-go-live
+
+| Área | Artefato local verificável | Procedimento exato | Consulta remota | Risco/limitação |
+| --- | --- | --- | --- | --- |
+| Function | Não localizado neste repositório | Não disponível | Necessária | Não declarar rollback automático sem revisão publicada identificada |
+| Hosting | Canal histórico `pre-cutover` documentado | Não garantido | Necessária | Canal pode ter expirado |
+| Rules | Histórico Git das regras | Reverter arquivo e publicar somente com autorização específica | Necessária para confirmar revisão ativa | Git não prova sozinho a versão atualmente publicada |
+| Dados | Snapshots de migração documentados | `production-cutover.mjs --rollback` somente sob pré-condições do Gate 2 | Necessária | Deixa de ser aplicável após alteração operacional da V2 |
+
+Para mudanças contratuais de Function/frontend sem escrita de dados, `DATA_ROLLBACK_REQUIRED = NÃO`; a reversão de código ainda exige um artefato de release ou commit explicitamente aprovado.

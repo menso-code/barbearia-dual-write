@@ -6,6 +6,7 @@ const read = (path) => readFile(new URL(path, root), "utf8");
 const agenda = await read("public/js/agenda.js");
 const admin = await read("public/js/admin.js");
 const barber = await read("public/js/barber.js");
+const hmlAgenda = await read("public-hml/js/agenda.js");
 
 assert.match(agenda, /agenda\.cancelar", \{ data: \{ appointmentId: agendamento\.id \} \}/);
 assert.match(agenda, /agenda\.concluir", \{ data: \{ appointmentId: agendamento\.id \} \}/);
@@ -17,6 +18,10 @@ assert.match(admin, /agenda\.\$\{status\}.*data: \{ appointmentId: agendamento\.
 assert.match(barber, /agenda\.\$\{status\}.*data: \{ appointmentId: item\.id \}/s);
 assert.match(agenda, /agenda\.criar", \{ data: dados \}/);
 assert.doesNotMatch(agenda, /agenda\.(?:cancelar|concluir|nao_compareceu)", \{\s*appointmentId:/);
+for (const command of ["cancelar", "concluir", "nao_compareceu"]) {
+  assert.match(hmlAgenda, new RegExp(`agenda\\.${command}", \\{ data: \\{ appointmentId: agendamento\\.id \\} \\}`));
+}
+assert.doesNotMatch(hmlAgenda, /agenda\.(?:cancelar|concluir|nao_compareceu)", \{\s*appointmentId:/);
 assert.doesNotMatch(admin, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
 assert.doesNotMatch(barber, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
 

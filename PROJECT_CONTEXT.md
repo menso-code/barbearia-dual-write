@@ -1,17 +1,21 @@
 # CURRENT PRODUCTION STATE
 
-> **Estado canônico pós-go-live — atualizado em 21/08/2026**
+> **Estado canônico pós-go-live — atualizado em 23/08/2026**
 >
 > GO_LIVE = **CONCLUÍDO**
 > POST_GO_LIVE_ENGINEERING_STATUS = **STABLE**
 > Produção: `barber-a01e7`
 
 - `executeOperationalCommand`: ACTIVE, Gen 2, `southamerica-east1`, Node.js 22.
-- Revisão comprovada: `executeoperationalcommand-00001-dec`.
+- Revisão comprovada: `executeoperationalcommand-00003-cel`.
 - `auditDualRead`: ACTIVE e preservada.
-- Hosting live: `5a35f5f7a503523b`.
+- Hosting live: versão `c0fa7920e0d74383`.
 - Baseline Hosting pré-cutover: canal `pre-cutover`, versão `0bf6114d9e83148e`; o canal possui expiração e deve ser verificado antes de qualquer uso como rollback.
-- Rules ativo: `49df51e7-9d0e-404b-a866-87a94c1a3b37`.
+- Rules ativo: release `cloud.firestore`, ruleset `49df51e7-9d0e-404b-a866-87a94c1a3b37`.
+
+- Fingerprint SHA-256 confirmado de `public/js/agenda.js` servido em produção: `5986FB990D06D80E900F4154FC94755D5ED34D606D6A40B2A92358AFF6756BEF`.
+- Rollback Function: `executeoperationalcommand-00002-pos`. Rollback Hosting: canal `pre-cutover`, versão `0bf6114d9e83148e`; a versão anterior das Rules não foi identificada.
+- `DATA_MODEL_MULTI_TENANT = SIM`, `AUTHORIZATION_MULTI_TENANT = SIM`, `RUNTIME_TENANT_RESOLUTION = FIXED_TENANT`.
 
 ## First controlled production flow — comprovado
 

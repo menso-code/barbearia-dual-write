@@ -40,6 +40,9 @@ assert.throws(() => extractRebookCommand({ ...rebookPayload, data: { ...rebookPa
 const hmlAgenda = await readFile(new URL("../public-hml/js/agenda.js", import.meta.url), "utf8");
 const productionAgenda = await readFile(new URL("../public/js/agenda.js", import.meta.url), "utf8");
 assert.match(hmlAgenda, /agenda\.reagendar", \{ appointmentId: agendamento\.id, data: dados \}/, "frontend HML deve usar appointmentId externo");
+for (const command of ["cancelar", "concluir", "nao_compareceu"]) {
+  assert.match(hmlAgenda, new RegExp(`agenda\\.${command}", \\{ data: \\{ appointmentId: agendamento\\.id \\} \\}`));
+}
 assert.match(productionAgenda, /agenda\.reagendar", \{ appointmentId: agendamento\.id, data: dados \}/, "frontend de produção deve usar appointmentId externo");
 assert.doesNotMatch(productionAgenda, /agenda\.reagendar", \{ data: \{ \.\.\.dados, appointmentId: agendamento\.id \} \}/, "frontend de produção não pode usar appointmentId dentro de data");
 

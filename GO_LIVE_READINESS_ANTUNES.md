@@ -20,6 +20,7 @@
 - O drift encontrado nas transições de agenda do pacote HML foi corrigido localmente para usar `data.appointmentId`; nenhuma Function foi alterada.
 - Rollback Function confirmado para `executeoperationalcommand-00002-pos`; rollback Hosting apontado para `pre-cutover / 0bf6114d9e83148e`; a versão anterior de Rules continua não identificada.
 - Artefatos locais de credenciais/cache foram movidos para fora da árvore do projeto, preservando a cobertura do `.gitignore`.
+- Firebase CLI hardening: `PRODUCTION_PROJECT = barber-a01e7`, `HML_PROJECT = teste-483f6`, `DEFAULT_PROJECT = NONE`, `EXPLICIT_PROJECT_REQUIRED = SIM`; o `.firebaserc` não aponta implicitamente para produção.
 
 ## First controlled production flow
 

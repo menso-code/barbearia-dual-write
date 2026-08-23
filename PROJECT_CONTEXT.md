@@ -16,6 +16,7 @@
 - Fingerprint SHA-256 confirmado de `public/js/agenda.js` servido em produção: `5986FB990D06D80E900F4154FC94755D5ED34D606D6A40B2A92358AFF6756BEF`.
 - Rollback Function: `executeoperationalcommand-00002-pos`. Rollback Hosting: canal `pre-cutover`, versão `0bf6114d9e83148e`; a versão anterior das Rules não foi identificada.
 - `DATA_MODEL_MULTI_TENANT = SIM`, `AUTHORIZATION_MULTI_TENANT = SIM`, `RUNTIME_TENANT_RESOLUTION = FIXED_TENANT`.
+- Firebase CLI hardening: `PRODUCTION_PROJECT = barber-a01e7`, `HML_PROJECT = teste-483f6`, `DEFAULT_PROJECT = NONE`, `EXPLICIT_PROJECT_REQUIRED = SIM`. O `.firebaserc` não define projeto default.
 
 ## First controlled production flow — comprovado
 

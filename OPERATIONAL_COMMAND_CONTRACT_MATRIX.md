@@ -41,4 +41,4 @@ De `agendado`, `cancelar` e `nao_compareceu` são permitidos. De `cliente_chegou
 
 ## Coverage status
 
-HML/prod proof exists for `agenda.criar`, cancellation and `admin.barbeiro.salvar` uniqueness. Local unit coverage is strong for the e-mail index and partial for the remaining commands; negative, cross-tenant and failure-injection coverage remains incomplete.
+HML/prod proof exists for `agenda.criar`, cancellation and `admin.barbeiro.salvar` uniqueness. The directed HML fixture flow for `admin.barbeiro.ativar` is closed as `CLOSED_HML_ONLY`, including create, activation, same-request replay, restore, cleanup and zero-residue proof. The consolidated coverage matrix has `MISSING_COVERAGE = 0` and `P2_GAPS = NENHUM`; remaining deferred commands stay governed by their existing non-reversibility policy.

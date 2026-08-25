@@ -41,7 +41,7 @@ Runtime service account dedicada com role mínima Firestore; nenhuma chave criad
 - Revisão futura das mensagens de erro em logs.
 - Nome histórico `homologation-identity.js`.
 - Manutenção da documentação de contratos e rollback.
-- `.firebaserc` mantém produção como projeto padrão; deploy exige projeto explícito.
+- `DEFAULT_PROJECT = NONE`; `PRODUCTION_PROJECT = barber-a01e7`; `HML_PROJECT = teste-483f6`; `EXPLICIT_PROJECT_REQUIRED = SIM`.
 - `RUNTIME_TENANT_RESOLUTION = FIXED_TENANT` permanece limitação arquitetural conhecida.
 
 > **HISTÓRICO/SUPERADO:** todo o conteúdo abaixo registra a preparação

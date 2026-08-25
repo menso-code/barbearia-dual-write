@@ -43,6 +43,9 @@ let solicitacoesAssinaturaCarregadas = false;
 let solicitacoesAssinaturaCache = [];
 const clientesAssinaturasCache = new Map();
 const clientesNovoAgendamentoCache = new Map();
+let clientesAdministrativosCarregados = false;
+let agendaTodosCache = [];
+let agendaTodosCachePronto = false;
 let selecaoClienteNovoAgendamento = 0;
 const agendaEstado = {
   periodo: "todos",
@@ -78,6 +81,40 @@ const FOTO_BARBEIRO_TARGET_BYTES = 500 * 1024;
 const FOTO_BARBEIRO_MAX_SIDE = 1600;
 const FOTO_BARBEIRO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
+function publicarDadosClientes() {
+  const detail = {
+    clients: [...clientesNovoAgendamentoCache.entries()].map(([id, data]) => ({
+      id,
+      data,
+    })),
+    appointments: agendaTodosCache,
+    subscriptions: solicitacoesAssinaturaCache,
+    complete: clientesAdministrativosCarregados && agendaTodosCachePronto,
+  };
+  window.adminCustomersSourceSnapshot = detail;
+  window.dispatchEvent(new CustomEvent("admin:customers-data", { detail }));
+}
+
+async function carregarClientesAdministrativos({ atualizar = false } = {}) {
+  if (clientesAdministrativosCarregados && !atualizar) {
+    publicarDadosClientes();
+    return true;
+  }
+  try {
+    const clientes = await getDocs(collection(db, "clientes"));
+    clientesNovoAgendamentoCache.clear();
+    clientes.forEach((cliente) => {
+      clientesNovoAgendamentoCache.set(cliente.id, cliente.data());
+    });
+    clientesAdministrativosCarregados = true;
+    publicarDadosClientes();
+    return true;
+  } catch (erro) {
+    console.warn("Não foi possível carregar os clientes cadastrados.", erro);
+    return false;
+  }
+}
+
 document.querySelector("[data-logout]")?.addEventListener("click", async () => {
   try {
     await signOut(auth);
@@ -107,6 +144,7 @@ onAuthStateChanged(auth, async (user) => {
   await carregarServicos();
   await carregarAssinaturas();
   await carregarSolicitacoesAssinatura();
+  await carregarClientesAdministrativos();
   await carregarHistoricoAssinaturas();
   await carregarFuncionamento();
   await carregarAgenda();
@@ -1565,6 +1603,7 @@ async function carregarSolicitacoesAssinatura({ atualizar = false } = {}) {
     todas = await prepararReservasLegadas(todas);
     solicitacoesAssinaturaCache = await enriquecerSolicitacoesComCliente(todas);
     solicitacoesAssinaturaCarregadas = true;
+    publicarDadosClientes();
     renderizarSolicitacoesAssinatura();
   } catch (erro) {
     console.error("Falha ao carregar solicitações de assinatura.", erro);
@@ -1804,26 +1843,36 @@ function anunciarAtualizacaoAgenda(mensagem, variante = "success") {
   }, 2500);
 }
 
-function acoesAgenda(agendamento) {
+function acoesOperacionaisAgenda(agendamento) {
   if (
     !["agendado", "cliente_chegou", "em_atendimento"].includes(
       agendamento.status,
     )
   )
-    return "";
-  const principal =
-    agendamento.status === "cliente_chegou" ? "Iniciar" : "Concluir";
-  const acaoPrincipal =
-    agendamento.status === "cliente_chegou"
-      ? "data-iniciar-agendamento"
-      : "data-concluir-agendamento";
+    return [];
+  const actions = [];
+  if (agendamento.status === "agendado") actions.push(["Cliente chegou", "data-chegada-agendamento"]);
+  if (agendamento.status === "cliente_chegou") actions.push(["Iniciar atendimento", "data-iniciar-agendamento"]);
+  if (agendamento.cliente_whatsapp) actions.push(["Enviar lembrete", "data-whatsapp"]);
+  actions.push(["Concluir", "data-concluir-agendamento"]);
+  actions.push(["Não compareceu", "data-falta-agendamento"]);
+  actions.push(["Cancelar", "data-cancelar-agendamento"]);
+  return actions.map(([label, attribute]) => ({ label, attribute, id: agendamento.id }));
+}
+
+window.adminAgendaActionDefinitions = acoesOperacionaisAgenda;
+
+function acoesAgenda(agendamento) {
+  const actions = acoesOperacionaisAgenda(agendamento);
+  if (!actions.length) return "";
+  const primary = actions.find((action) => ["data-iniciar-agendamento", "data-concluir-agendamento"].includes(action.attribute));
+  const secondary = actions.filter((action) => action !== primary);
+  const renderButton = (action, className = "btn btn-ghost btn-sm") =>
+    `<button class="${className}" ${action.attribute}="${escaparHtml(action.attribute === "data-whatsapp" ? agendamento.cliente_whatsapp : agendamento.id)}">${escaparHtml(action.label === "Iniciar atendimento" ? "Iniciar" : action.label === "Enviar lembrete" ? "Lembrete" : action.label)}</button>`;
   return `<div class="agenda-actions">
-    <button class="btn btn-primary btn-sm" ${acaoPrincipal}="${agendamento.id}">${principal}</button>
+    ${primary ? renderButton(primary, "btn btn-primary btn-sm") : ""}
     <details class="agenda-actions-menu"><summary aria-label="Mais ações">⋮</summary><div>
-      ${agendamento.status === "agendado" ? `<button class="btn btn-ghost btn-sm" data-chegada-agendamento="${agendamento.id}">Cliente chegou</button>` : ""}
-      ${agendamento.cliente_whatsapp ? `<button class="btn btn-ghost btn-sm" data-whatsapp="${agendamento.cliente_whatsapp}">Lembrete</button>` : ""}
-      <button class="btn btn-danger btn-sm" data-falta-agendamento="${agendamento.id}">Não compareceu</button>
-      <button class="btn btn-danger btn-sm" data-cancelar-agendamento="${agendamento.id}">Cancelar</button>
+      ${secondary.map((action) => renderButton(action, action.attribute === "data-falta-agendamento" || action.attribute === "data-cancelar-agendamento" ? "btn btn-danger btn-sm" : "btn btn-ghost btn-sm")).join("")}
     </div></details>
   </div>`;
 }
@@ -1965,6 +2014,11 @@ async function carregarAgenda() {
   const snap = await getDocs(query(...restricoes));
 
   if (snap.empty) {
+    if (!periodo) {
+      agendaTodosCache = [];
+      agendaTodosCachePronto = true;
+      publicarDadosClientes();
+    }
     body.innerHTML = `<tr><td colspan="7" style="color:var(--cinza)">Nenhum agendamento ainda.</td></tr>`;
     cards.innerHTML = `<div class="empty-state"><h3>Nenhum agendamento ainda</h3></div>`;
     document.getElementById("agenda-contador").textContent =
@@ -1976,6 +2030,8 @@ async function carregarAgenda() {
       new CustomEvent("admin:agenda-rendered", {
         detail: {
           appointments: [],
+          allAppointments: [],
+          actionsByAppointment: {},
           date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
         },
       }),
@@ -2019,6 +2075,12 @@ async function carregarAgenda() {
       };
     }),
   );
+
+  if (!periodo) {
+    agendaTodosCache = agendamentos;
+    agendaTodosCachePronto = true;
+    publicarDadosClientes();
+  }
 
   const busca = agendaEstado.busca.trim().toLocaleLowerCase("pt-BR");
   const filtrados = agendamentos.filter((a) => {
@@ -2068,6 +2130,10 @@ async function carregarAgenda() {
     new CustomEvent("admin:agenda-rendered", {
       detail: {
         appointments: filtrados,
+        allAppointments: agendamentos,
+        actionsByAppointment: Object.fromEntries(
+          agendamentos.map((appointment) => [appointment.id, acoesOperacionaisAgenda(appointment)]),
+        ),
         date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
       },
     }),
@@ -2405,6 +2471,19 @@ async function marcarNaoCompareceu(agendamento, btn) {
     }
   }
 }
+
+window.addEventListener("admin:pending-action", (event) => {
+  const appointment = event.detail?.appointment;
+  const action = event.detail?.action?.attribute;
+  const button = event.detail?.button;
+  if (!appointment || !action) return;
+  if (action === "data-whatsapp") return abrirWhatsApp(appointment);
+  if (action === "data-chegada-agendamento") return atualizarStatusOperacional(appointment, "cliente_chegou", button);
+  if (action === "data-iniciar-agendamento") return atualizarStatusOperacional(appointment, "em_atendimento", button);
+  if (action === "data-concluir-agendamento") return concluirComConfirmacao(appointment, button);
+  if (action === "data-falta-agendamento") return marcarNaoCompareceu(appointment, button);
+  if (action === "data-cancelar-agendamento") return cancelarAgendamentoAdmin(appointment, button);
+});
 
 function abrirWhatsAppCancelamento(agendamento) {
   const numero = String(agendamento.cliente_whatsapp || "").replace(/\D/g, "");
@@ -3010,15 +3089,12 @@ async function abrirNovoAgendamento() {
 
   const selectCliente = document.getElementById("novo-cliente");
   selectCliente.innerHTML = `<option value="">Cliente presencial / novo</option>`;
-  clientesNovoAgendamentoCache.clear();
-  try {
-    const clientes = await getDocs(collection(db, "clientes"));
-    clientes.forEach((cliente) => {
-      const dados = cliente.data();
-      clientesNovoAgendamentoCache.set(cliente.id, dados);
-      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), cliente.id));
+  const carregouClientes = await carregarClientesAdministrativos();
+  if (carregouClientes) {
+    clientesNovoAgendamentoCache.forEach((dados, clienteId) => {
+      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), clienteId));
     });
-  } catch (err) {
+  } else {
     mensagemNovoAgendamento(
       "Não foi possível carregar os clientes cadastrados.",
     );

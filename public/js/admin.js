@@ -43,6 +43,9 @@ let solicitacoesAssinaturaCarregadas = false;
 let solicitacoesAssinaturaCache = [];
 const clientesAssinaturasCache = new Map();
 const clientesNovoAgendamentoCache = new Map();
+let clientesAdministrativosCarregados = false;
+let agendaTodosCache = [];
+let agendaTodosCachePronto = false;
 let selecaoClienteNovoAgendamento = 0;
 const agendaEstado = {
   periodo: "todos",
@@ -78,6 +81,40 @@ const FOTO_BARBEIRO_TARGET_BYTES = 500 * 1024;
 const FOTO_BARBEIRO_MAX_SIDE = 1600;
 const FOTO_BARBEIRO_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
+function publicarDadosClientes() {
+  const detail = {
+    clients: [...clientesNovoAgendamentoCache.entries()].map(([id, data]) => ({
+      id,
+      data,
+    })),
+    appointments: agendaTodosCache,
+    subscriptions: solicitacoesAssinaturaCache,
+    complete: clientesAdministrativosCarregados && agendaTodosCachePronto,
+  };
+  window.adminCustomersSourceSnapshot = detail;
+  window.dispatchEvent(new CustomEvent("admin:customers-data", { detail }));
+}
+
+async function carregarClientesAdministrativos({ atualizar = false } = {}) {
+  if (clientesAdministrativosCarregados && !atualizar) {
+    publicarDadosClientes();
+    return true;
+  }
+  try {
+    const clientes = await getDocs(collection(db, "clientes"));
+    clientesNovoAgendamentoCache.clear();
+    clientes.forEach((cliente) => {
+      clientesNovoAgendamentoCache.set(cliente.id, cliente.data());
+    });
+    clientesAdministrativosCarregados = true;
+    publicarDadosClientes();
+    return true;
+  } catch (erro) {
+    console.warn("Não foi possível carregar os clientes cadastrados.", erro);
+    return false;
+  }
+}
+
 document.querySelector("[data-logout]")?.addEventListener("click", async () => {
   try {
     await signOut(auth);
@@ -107,6 +144,7 @@ onAuthStateChanged(auth, async (user) => {
   await carregarServicos();
   await carregarAssinaturas();
   await carregarSolicitacoesAssinatura();
+  await carregarClientesAdministrativos();
   await carregarHistoricoAssinaturas();
   await carregarFuncionamento();
   await carregarAgenda();
@@ -1565,6 +1603,7 @@ async function carregarSolicitacoesAssinatura({ atualizar = false } = {}) {
     todas = await prepararReservasLegadas(todas);
     solicitacoesAssinaturaCache = await enriquecerSolicitacoesComCliente(todas);
     solicitacoesAssinaturaCarregadas = true;
+    publicarDadosClientes();
     renderizarSolicitacoesAssinatura();
   } catch (erro) {
     console.error("Falha ao carregar solicitações de assinatura.", erro);
@@ -1975,6 +2014,11 @@ async function carregarAgenda() {
   const snap = await getDocs(query(...restricoes));
 
   if (snap.empty) {
+    if (!periodo) {
+      agendaTodosCache = [];
+      agendaTodosCachePronto = true;
+      publicarDadosClientes();
+    }
     body.innerHTML = `<tr><td colspan="7" style="color:var(--cinza)">Nenhum agendamento ainda.</td></tr>`;
     cards.innerHTML = `<div class="empty-state"><h3>Nenhum agendamento ainda</h3></div>`;
     document.getElementById("agenda-contador").textContent =
@@ -2031,6 +2075,12 @@ async function carregarAgenda() {
       };
     }),
   );
+
+  if (!periodo) {
+    agendaTodosCache = agendamentos;
+    agendaTodosCachePronto = true;
+    publicarDadosClientes();
+  }
 
   const busca = agendaEstado.busca.trim().toLocaleLowerCase("pt-BR");
   const filtrados = agendamentos.filter((a) => {
@@ -3039,15 +3089,12 @@ async function abrirNovoAgendamento() {
 
   const selectCliente = document.getElementById("novo-cliente");
   selectCliente.innerHTML = `<option value="">Cliente presencial / novo</option>`;
-  clientesNovoAgendamentoCache.clear();
-  try {
-    const clientes = await getDocs(collection(db, "clientes"));
-    clientes.forEach((cliente) => {
-      const dados = cliente.data();
-      clientesNovoAgendamentoCache.set(cliente.id, dados);
-      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), cliente.id));
+  const carregouClientes = await carregarClientesAdministrativos();
+  if (carregouClientes) {
+    clientesNovoAgendamentoCache.forEach((dados, clienteId) => {
+      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), clienteId));
     });
-  } catch (err) {
+  } else {
     mensagemNovoAgendamento(
       "Não foi possível carregar os clientes cadastrados.",
     );

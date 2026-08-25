@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="css/admin-control-center.css" />
     <link rel="stylesheet" href="css/admin-agenda-v2.css" />
     <link rel="stylesheet" href="css/admin-pending.css" />
+    <link rel="stylesheet" href="css/admin-customers.css" />
   </head>
   <body class="admin-page">
     <!-- Tela mostrada enquanto verifica permissão, ou se o usuário não for admin -->
@@ -102,9 +103,54 @@
           <button class="pending-overview-alert" id="overview-pending-alert" data-view="pendencias" type="button" hidden></button>
         </section>
 
-        <section class="view control-placeholder-view" id="view-clientes" aria-labelledby="clientes-title">
-          <div class="control-page-heading"><div><span class="eyebrow">Relacionamento</span><h2 id="clientes-title">Clientes</h2><p class="control-page-description">A área de clientes será conectada em uma fase posterior.</p></div></div>
-          <article class="control-panel"><h3>Em preparação</h3><p>Os clientes continuam acessíveis pelos fluxos existentes de agendamento e assinaturas.</p></article>
+        <section class="view clientes-view" id="view-clientes" aria-labelledby="clientes-title">
+          <div class="control-page-heading">
+            <div>
+              <span class="eyebrow">Relacionamento</span>
+              <h2 id="clientes-title">Clientes</h2>
+              <p class="control-page-description">Uma visão operacional dos clientes cadastrados, seus próximos horários e histórico.</p>
+            </div>
+          </div>
+
+          <div class="clientes-toolbar control-panel" aria-label="Filtros de clientes">
+            <label class="clientes-search">
+              <span class="sr-only">Buscar cliente</span>
+              <span aria-hidden="true">⌕</span>
+              <input id="clientes-busca" type="search" placeholder="Buscar por nome ou telefone" autocomplete="off" />
+            </label>
+            <label class="clientes-filter">
+              <span class="sr-only">Filtrar clientes</span>
+              <select id="clientes-filtro">
+                <option value="all">Todos os clientes</option>
+                <option value="future">Com próximo atendimento</option>
+                <option value="subscription">Com assinatura atual ou pendente</option>
+              </select>
+            </label>
+            <span class="clientes-count" id="clientes-contador" aria-live="polite">Carregando clientes…</span>
+          </div>
+
+          <div class="clientes-workspace">
+            <div class="control-panel clientes-list-panel">
+              <div class="clientes-table-wrap">
+                <table class="clientes-table">
+                  <caption class="sr-only">Clientes cadastrados</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Cliente</th>
+                      <th scope="col">Próximo atendimento</th>
+                      <th scope="col">Último atendimento</th>
+                      <th scope="col">Atendimentos</th>
+                      <th scope="col">Assinatura</th>
+                    </tr>
+                  </thead>
+                  <tbody id="clientes-tabela-corpo"></tbody>
+                </table>
+              </div>
+              <div class="clientes-cards" id="clientes-cards"></div>
+            </div>
+
+            <aside class="agenda-v2-quick-panel clientes-detail-panel" id="clientes-detail-panel" aria-label="Detalhes do cliente" hidden></aside>
+          </div>
         </section>
 
         <section class="view control-placeholder-view" id="view-configuracoes" aria-labelledby="configuracoes-title">
@@ -1065,6 +1111,7 @@
     <script type="module" src="js/admin-control-center.js"></script>
     <script type="module" src="js/admin-agenda-v2.js"></script>
     <script type="module" src="js/admin-pending.js"></script>
+    <script type="module" src="js/admin-customers.js"></script>
     <script defer src="js/pwa-install.js"></script>
   </body>
 </html>

@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="css/style.css" />
     <link rel="stylesheet" href="css/admin-control-center.css" />
     <link rel="stylesheet" href="css/admin-agenda-v2.css" />
+    <link rel="stylesheet" href="css/admin-pending.css" />
   </head>
   <body class="admin-page">
     <!-- Tela mostrada enquanto verifica permissão, ou se o usuário não for admin -->
@@ -57,6 +58,7 @@
           <nav class="admin-sidebar-nav" aria-label="Seções administrativas">
             <button class="active" data-view="overview" aria-current="page" type="button"><span aria-hidden="true">◈</span>Visão Geral</button>
             <button data-view="agenda" type="button"><span aria-hidden="true">▦</span>Agenda</button>
+            <button data-view="pendencias" type="button"><span aria-hidden="true">◌</span>Pendências <span class="admin-pending-count" id="admin-pending-count" aria-label="0 pendências">(0)</span></button>
             <button data-view="clientes" type="button"><span aria-hidden="true">◎</span>Clientes</button>
             <button data-view="equipe" type="button"><span aria-hidden="true">♙</span>Profissionais</button>
             <button data-view="servicos" type="button"><span aria-hidden="true">◇</span>Serviços</button>
@@ -97,6 +99,7 @@
             </article>
             <article class="control-panel"><span class="eyebrow">Contexto</span><h3>Barbearia Antunes</h3><p>Este estabelecimento está sendo gerenciado no Control Center GoEstudio.</p></article>
           </div>
+          <button class="pending-overview-alert" id="overview-pending-alert" data-view="pendencias" type="button" hidden></button>
         </section>
 
         <section class="view control-placeholder-view" id="view-clientes" aria-labelledby="clientes-title">
@@ -407,6 +410,26 @@
               Próxima →
             </button>
           </nav>
+        </section>
+
+        <section class="view" id="view-pendencias" aria-labelledby="pendencias-title">
+          <div class="section-head pending-page-heading">
+            <div>
+              <span class="eyebrow">Agenda</span>
+              <h2 id="pendencias-title">Pendências</h2>
+              <p class="control-page-description">Agendamentos antigos que aguardam uma decisão operacional.</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" data-view="agenda" type="button">Voltar para Agenda</button>
+          </div>
+          <div class="pending-summary" aria-live="polite">
+            <strong id="pending-summary-count">0 pendências</strong>
+            <span>Revise cada atendimento e escolha a ação final correta.</span>
+          </div>
+          <div class="pending-list" id="pending-list" aria-live="polite"></div>
+          <div class="pending-empty" id="pending-empty" hidden>
+            <strong>Nenhuma pendência encontrada.</strong>
+            <span>Os atendimentos antigos estão em estado terminal ou ainda dentro do horário.</span>
+          </div>
         </section>
 
         <!-- ===================== FUNCIONAMENTO ===================== -->
@@ -1041,6 +1064,7 @@
     <script type="module" src="js/admin.js"></script>
     <script type="module" src="js/admin-control-center.js"></script>
     <script type="module" src="js/admin-agenda-v2.js"></script>
+    <script type="module" src="js/admin-pending.js"></script>
     <script defer src="js/pwa-install.js"></script>
   </body>
 </html>

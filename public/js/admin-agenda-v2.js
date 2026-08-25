@@ -209,17 +209,7 @@ function findOriginalAction(row, attribute, id) {
 }
 
 function actionDefinitions(appointment) {
-  const id = appointment.id;
-  const actions = [];
-  if (appointment.status === "agendado") actions.push(["Cliente chegou", "data-chegada-agendamento"]);
-  if (appointment.status === "cliente_chegou") actions.push(["Iniciar atendimento", "data-iniciar-agendamento"]);
-  if (["agendado", "cliente_chegou", "em_atendimento"].includes(appointment.status)) {
-    if (appointment.cliente_whatsapp) actions.push(["Enviar lembrete", "data-whatsapp"]);
-    actions.push(["Concluir", "data-concluir-agendamento"]);
-    actions.push(["Não compareceu", "data-falta-agendamento"]);
-    actions.push(["Cancelar", "data-cancelar-agendamento"]);
-  }
-  return actions.map(([label, attribute]) => ({ label, attribute, id }));
+  return window.adminAgendaActionDefinitions?.(appointment) || [];
 }
 
 function openQuickPanel(appointment) {

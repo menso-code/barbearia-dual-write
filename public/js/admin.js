@@ -1804,26 +1804,36 @@ function anunciarAtualizacaoAgenda(mensagem, variante = "success") {
   }, 2500);
 }
 
-function acoesAgenda(agendamento) {
+function acoesOperacionaisAgenda(agendamento) {
   if (
     !["agendado", "cliente_chegou", "em_atendimento"].includes(
       agendamento.status,
     )
   )
-    return "";
-  const principal =
-    agendamento.status === "cliente_chegou" ? "Iniciar" : "Concluir";
-  const acaoPrincipal =
-    agendamento.status === "cliente_chegou"
-      ? "data-iniciar-agendamento"
-      : "data-concluir-agendamento";
+    return [];
+  const actions = [];
+  if (agendamento.status === "agendado") actions.push(["Cliente chegou", "data-chegada-agendamento"]);
+  if (agendamento.status === "cliente_chegou") actions.push(["Iniciar atendimento", "data-iniciar-agendamento"]);
+  if (agendamento.cliente_whatsapp) actions.push(["Enviar lembrete", "data-whatsapp"]);
+  actions.push(["Concluir", "data-concluir-agendamento"]);
+  actions.push(["Não compareceu", "data-falta-agendamento"]);
+  actions.push(["Cancelar", "data-cancelar-agendamento"]);
+  return actions.map(([label, attribute]) => ({ label, attribute, id: agendamento.id }));
+}
+
+window.adminAgendaActionDefinitions = acoesOperacionaisAgenda;
+
+function acoesAgenda(agendamento) {
+  const actions = acoesOperacionaisAgenda(agendamento);
+  if (!actions.length) return "";
+  const primary = actions.find((action) => ["data-iniciar-agendamento", "data-concluir-agendamento"].includes(action.attribute));
+  const secondary = actions.filter((action) => action !== primary);
+  const renderButton = (action, className = "btn btn-ghost btn-sm") =>
+    `<button class="${className}" ${action.attribute}="${escaparHtml(action.attribute === "data-whatsapp" ? agendamento.cliente_whatsapp : agendamento.id)}">${escaparHtml(action.label === "Iniciar atendimento" ? "Iniciar" : action.label === "Enviar lembrete" ? "Lembrete" : action.label)}</button>`;
   return `<div class="agenda-actions">
-    <button class="btn btn-primary btn-sm" ${acaoPrincipal}="${agendamento.id}">${principal}</button>
+    ${primary ? renderButton(primary, "btn btn-primary btn-sm") : ""}
     <details class="agenda-actions-menu"><summary aria-label="Mais ações">⋮</summary><div>
-      ${agendamento.status === "agendado" ? `<button class="btn btn-ghost btn-sm" data-chegada-agendamento="${agendamento.id}">Cliente chegou</button>` : ""}
-      ${agendamento.cliente_whatsapp ? `<button class="btn btn-ghost btn-sm" data-whatsapp="${agendamento.cliente_whatsapp}">Lembrete</button>` : ""}
-      <button class="btn btn-danger btn-sm" data-falta-agendamento="${agendamento.id}">Não compareceu</button>
-      <button class="btn btn-danger btn-sm" data-cancelar-agendamento="${agendamento.id}">Cancelar</button>
+      ${secondary.map((action) => renderButton(action, action.attribute === "data-falta-agendamento" || action.attribute === "data-cancelar-agendamento" ? "btn btn-danger btn-sm" : "btn btn-ghost btn-sm")).join("")}
     </div></details>
   </div>`;
 }
@@ -1976,6 +1986,8 @@ async function carregarAgenda() {
       new CustomEvent("admin:agenda-rendered", {
         detail: {
           appointments: [],
+          allAppointments: [],
+          actionsByAppointment: {},
           date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
         },
       }),
@@ -2068,6 +2080,10 @@ async function carregarAgenda() {
     new CustomEvent("admin:agenda-rendered", {
       detail: {
         appointments: filtrados,
+        allAppointments: agendamentos,
+        actionsByAppointment: Object.fromEntries(
+          agendamentos.map((appointment) => [appointment.id, acoesOperacionaisAgenda(appointment)]),
+        ),
         date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
       },
     }),
@@ -2405,6 +2421,19 @@ async function marcarNaoCompareceu(agendamento, btn) {
     }
   }
 }
+
+window.addEventListener("admin:pending-action", (event) => {
+  const appointment = event.detail?.appointment;
+  const action = event.detail?.action?.attribute;
+  const button = event.detail?.button;
+  if (!appointment || !action) return;
+  if (action === "data-whatsapp") return abrirWhatsApp(appointment);
+  if (action === "data-chegada-agendamento") return atualizarStatusOperacional(appointment, "cliente_chegou", button);
+  if (action === "data-iniciar-agendamento") return atualizarStatusOperacional(appointment, "em_atendimento", button);
+  if (action === "data-concluir-agendamento") return concluirComConfirmacao(appointment, button);
+  if (action === "data-falta-agendamento") return marcarNaoCompareceu(appointment, button);
+  if (action === "data-cancelar-agendamento") return cancelarAgendamentoAdmin(appointment, button);
+});
 
 function abrirWhatsAppCancelamento(agendamento) {
   const numero = String(agendamento.cliente_whatsapp || "").replace(/\D/g, "");

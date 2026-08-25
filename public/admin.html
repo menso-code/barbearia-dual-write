@@ -60,6 +60,7 @@
             <button class="active" data-view="overview" aria-current="page" type="button"><span aria-hidden="true">◈</span>Visão Geral</button>
             <button data-view="agenda" type="button"><span aria-hidden="true">▦</span>Agenda</button>
             <button data-view="pendencias" type="button"><span aria-hidden="true">◌</span>Pendências <span class="admin-pending-count" id="admin-pending-count" aria-label="0 pendências">(0)</span></button>
+            <button data-view="encaixes" type="button"><span aria-hidden="true">◇</span>Encaixes <span class="admin-fitting-count" id="admin-fitting-count" aria-label="0 encaixes">(0)</span></button>
             <button data-view="clientes" type="button"><span aria-hidden="true">◎</span>Clientes</button>
             <button data-view="equipe" type="button"><span aria-hidden="true">♙</span>Profissionais</button>
             <button data-view="servicos" type="button"><span aria-hidden="true">◇</span>Serviços</button>
@@ -88,9 +89,9 @@
           </div>
           <div class="control-kpi-grid" aria-label="Indicadores operacionais">
             <article class="control-kpi-card"><span>Agendamentos hoje</span><strong data-kpi="appointments">—</strong><small data-kpi-state="appointments">Disponível na Agenda</small></article>
-            <article class="control-kpi-card"><span>Clientes atendidos</span><strong data-kpi="clients">—</strong><small data-kpi-state="clients">Disponível em uma fase posterior</small></article>
-            <article class="control-kpi-card"><span>Ocupação</span><strong data-kpi="occupancy">—</strong><small data-kpi-state="occupancy">Disponível em uma fase posterior</small></article>
-            <article class="control-kpi-card"><span>Próximo atendimento</span><strong data-kpi="next">—</strong><small data-kpi-state="next">Disponível na Agenda</small></article>
+            <article class="control-kpi-card"><span>Clientes atendidos</span><strong data-kpi="clients">—</strong><small data-kpi-state="clients">Somente concluídos hoje</small></article>
+            <article class="control-kpi-card"><span>Encaixes</span><strong data-kpi="fittings">—</strong><small data-kpi-state="fittings">Nenhum horário liberado</small><button class="kpi-inline-action" id="overview-fittings-action" data-view="encaixes" type="button" hidden>Ver horários</button></article>
+            <article class="control-kpi-card"><span>Próximos atendimentos</span><strong data-kpi="next">—</strong><small data-kpi-state="next">Hoje · próximo horário por profissional</small></article>
             <article class="control-kpi-card"><span>Profissionais ativos</span><strong data-kpi="professionals">—</strong><small data-kpi-state="professionals">Disponível em Profissionais</small></article>
           </div>
           <div class="control-overview-panels">
@@ -101,6 +102,32 @@
             <article class="control-panel"><span class="eyebrow">Contexto</span><h3>Barbearia Antunes</h3><p>Este estabelecimento está sendo gerenciado no Control Center GoEstudio.</p></article>
           </div>
           <button class="pending-overview-alert" id="overview-pending-alert" data-view="pendencias" type="button" hidden></button>
+          <section class="late-overview-alert" id="overview-late-alert" role="alert" aria-labelledby="overview-late-alert-title" hidden>
+            <div>
+              <strong id="overview-late-alert-title"></strong>
+              <span id="overview-late-alert-description">Existem atendimentos que ainda não tiveram chegada registrada.</span>
+            </div>
+            <button class="btn btn-ghost btn-sm late-overview-alert-action" id="overview-late-alert-action" type="button">Ver agora</button>
+          </section>
+          <section class="late-overview-panel" id="overview-late-panel" aria-labelledby="overview-late-panel-title" hidden>
+            <div class="control-panel-heading">
+              <div><span class="eyebrow">Atenção operacional</span><h3 id="overview-late-panel-title">Clientes em atraso hoje</h3></div>
+              <button class="btn btn-ghost btn-sm" id="overview-late-panel-close" type="button" aria-label="Fechar clientes em atraso">Fechar</button>
+            </div>
+            <div class="late-overview-list" id="overview-late-list" aria-live="polite"></div>
+          </section>
+        </section>
+
+        <section class="view fittings-view" id="view-encaixes" aria-labelledby="fittings-title">
+          <div class="control-page-heading">
+            <div><span class="eyebrow">Horários liberados</span><h2 id="fittings-title">Encaixes de hoje</h2><p class="control-page-description">Horários válidos originados por cancelamentos ou não comparecimentos.</p></div>
+            <button class="btn btn-primary" data-view="agenda" type="button">Abrir agenda</button>
+          </div>
+          <article class="control-panel fittings-workspace-panel">
+            <div class="fittings-workspace-summary"><strong id="admin-fittings-summary-count">Encaixes disponíveis</strong><span>Somente hoje · sem seleção automática de cliente ou serviço</span></div>
+            <p class="fittings-feedback" id="admin-fittings-feedback" role="status" aria-live="polite"></p>
+            <div class="fittings-workspace-list" id="admin-fittings-list" aria-live="polite"></div>
+          </article>
         </section>
 
         <section class="view clientes-view" id="view-clientes" aria-labelledby="clientes-title">

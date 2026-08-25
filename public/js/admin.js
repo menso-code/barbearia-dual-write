@@ -3043,6 +3043,7 @@ async function carregarRelatorio() {
 const modalNovoAgendamento = document.getElementById("modal-novo-agendamento");
 const formNovoAgendamento = document.getElementById("form-novo-agendamento");
 const msgNovoAgendamento = document.getElementById("novo-agendamento-msg");
+let pendingNewAppointmentPrefill = null;
 
 function contatoDoClienteNovoAgendamento(dados = {}) {
   const telefone = [
@@ -3070,8 +3071,11 @@ function mensagemNovoAgendamento(texto, tipo = "err") {
   msgNovoAgendamento.className = `msg show ${tipo}`;
 }
 
-async function abrirNovoAgendamento() {
+async function abrirNovoAgendamento(prefill = {}) {
   formNovoAgendamento.reset();
+  pendingNewAppointmentPrefill = prefill.barbeiroId || prefill.data || prefill.horario
+    ? { ...prefill }
+    : null;
   msgNovoAgendamento.className = "msg";
   document.getElementById("novo-data").min = dataLocalHoje();
   const selectBarbeiro = document.getElementById("novo-barbeiro");
@@ -3099,8 +3103,16 @@ async function abrirNovoAgendamento() {
       "Não foi possível carregar os clientes cadastrados.",
     );
   }
+  if (prefill.barbeiroId && [...selectBarbeiro.options].some((option) => option.value === prefill.barbeiroId)) {
+    selectBarbeiro.value = prefill.barbeiroId;
+  }
+  if (prefill.data) {
+    document.getElementById("novo-data").value = prefill.data;
+  }
   modalNovoAgendamento.classList.add("show");
 }
+
+window.adminOpenNewAppointment = abrirNovoAgendamento;
 
 document
   .getElementById("btn-novo-agendamento")
@@ -3178,6 +3190,14 @@ async function atualizarHorariosNovoAgendamento() {
     horarios.forEach((horario) =>
       selectHorario.add(new Option(horario, horario)),
     );
+    const prefill = pendingNewAppointmentPrefill;
+    if (prefill
+      && prefill.barbeiroId === barbeiro.id
+      && prefill.data === data
+      && [...selectHorario.options].some((option) => option.value === prefill.horario)) {
+      selectHorario.value = prefill.horario;
+      pendingNewAppointmentPrefill = null;
+    }
   } catch (err) {
     selectHorario.innerHTML = `<option value="">Não foi possível consultar os horários</option>`;
     console.error(err);

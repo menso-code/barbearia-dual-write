@@ -9,6 +9,7 @@ const barber = await read("public/js/barber.js");
 const hmlAgenda = await read("public-hml/js/agenda.js");
 const adminHtml = await read("public/admin.html");
 const controlCenter = await read("public/js/admin-control-center.js");
+const todayOperation = await read("public/js/admin-today-operation-core.mjs");
 const controlCenterCss = await read("public/css/admin-control-center.css");
 const agendaV2 = await read("public/js/admin-agenda-v2.js");
 const agendaV2Css = await read("public/css/admin-agenda-v2.css");
@@ -36,7 +37,7 @@ assert.doesNotMatch(hmlAgenda, /agenda\.(?:cancelar|concluir|nao_compareceu)", \
 assert.doesNotMatch(admin, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
 assert.doesNotMatch(barber, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
 
-for (const view of ["overview", "agenda", "pendencias", "clientes", "equipe", "servicos", "assinaturas", "funcionamento", "relatorios", "configuracoes"]) {
+for (const view of ["overview", "agenda", "pendencias", "encaixes", "clientes", "equipe", "servicos", "assinaturas", "funcionamento", "relatorios", "configuracoes"]) {
   assert.match(adminHtml, new RegExp(`data-view="${view}"`), `Control Center view ausente: ${view}`);
 }
 assert.match(adminHtml, /class="admin-sidebar"/);
@@ -57,6 +58,28 @@ assert.match(controlCenter, /aria-current/);
 assert.match(controlCenter, /syncSidebarState/);
 assert.match(controlCenterCss, /--admin-topbar-height/);
 assert.match(controlCenterCss, /top: var\(--admin-topbar-height\)/);
+assert.match(controlCenter, /buildTodayOperationSummary/);
+assert.match(controlCenter, /lateAlert\.hidden = appointments\.length === 0/);
+assert.match(controlCenter, /admin:pending-action/);
+assert.match(todayOperation, /appointmentsForToday/);
+assert.match(todayOperation, /fittingAppointmentsForToday/);
+assert.match(todayOperation, /fittingPrefill/);
+assert.match(todayOperation, /fittingIsStillValid/);
+assert.match(controlCenter, /horariosCandidatos/);
+assert.match(controlCenter, /adminOpenNewAppointment/);
+assert.match(controlCenter, /Este encaixe não está mais disponível/);
+assert.match(controlCenter, /AGENDAR ENCAIXE/);
+assert.match(todayOperation, /LATE_APPOINTMENT_TOLERANCE_MINUTES = 10/);
+assert.match(todayOperation, /BLOCKED_BY_DATA_MODEL/);
+assert.match(adminHtml, /Próximos atendimentos/);
+assert.match(adminHtml, /data-kpi="fittings"/);
+assert.doesNotMatch(adminHtml, /data-kpi="occupancy"/);
+assert.match(adminHtml, /id="view-encaixes"/);
+assert.match(adminHtml, /id="admin-fitting-count"/);
+assert.match(adminHtml, /data-view="encaixes"/);
+assert.match(adminHtml, /id="overview-late-alert"/);
+assert.match(adminHtml, /id="overview-late-panel"/);
+assert.match(controlCenterCss, /\.late-overview-alert\[hidden\]/);
 assert.match(adminHtml, /css\/admin-agenda-v2\.css/);
 assert.match(adminHtml, /js\/admin-agenda-v2\.js/);
 assert.match(adminHtml, /data-agenda-view="day-grid"[^>]*aria-pressed="true"/);
@@ -78,6 +101,10 @@ assert.match(adminHtml, /id="modal-operacional-confirmacao"/);
 assert.match(adminHtml, /role="dialog"[\s\S]*aria-modal="true"/);
 assert.match(adminHtml, /id="btn-operational-confirm"/);
 assert.match(admin, /admin:agenda-rendered/);
+assert.match(admin, /window\.adminOpenNewAppointment = abrirNovoAgendamento/);
+assert.match(admin, /prefill\.barbeiroId/);
+assert.match(admin, /prefill\.data/);
+assert.match(admin, /prefill\.horario/);
 assert.match(admin, /admin:customers-data/);
 assert.match(admin, /carregarClientesAdministrativos/);
 assert.match(customers, /buildCustomerRecords/);

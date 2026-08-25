@@ -156,6 +156,13 @@
   color: var(--gostudio-blue);
 }
 
+.admin-sidebar-nav button .admin-fitting-count {
+  color: var(--go-primary);
+  font-size: 0.72rem;
+  margin-left: auto;
+  width: auto;
+}
+
 .admin-sidebar-footer {
   border-top: 1px solid var(--gostudio-border);
   color: var(--gostudio-muted);
@@ -279,6 +286,271 @@
   color: #210807;
 }
 
+.late-overview-alert {
+  align-items: center;
+  background: rgba(var(--go-warning-rgb), 0.1);
+  border: 1px solid rgba(var(--go-warning-rgb), 0.42);
+  border-radius: 12px;
+  color: var(--go-text);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 14px 16px;
+}
+
+.late-overview-alert[hidden],
+.late-overview-panel[hidden] {
+  display: none;
+}
+
+.late-overview-alert > div {
+  display: grid;
+  gap: 4px;
+}
+
+.late-overview-alert strong {
+  color: var(--go-warning);
+}
+
+.late-overview-alert span {
+  color: var(--go-text-muted);
+  font-size: 0.82rem;
+}
+
+.late-overview-alert-action {
+  border-color: rgba(var(--go-warning-rgb), 0.56);
+  color: var(--go-warning);
+  flex: 0 0 auto;
+}
+
+.late-overview-alert-action:hover,
+.late-overview-alert-action:focus-visible {
+  background: rgba(var(--go-warning-rgb), 0.14);
+  border-color: var(--go-warning);
+  color: var(--go-warning);
+}
+
+.late-overview-panel {
+  background: var(--go-surface);
+  border: 1px solid var(--go-border);
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 16px;
+}
+
+.late-overview-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.late-appointment-item {
+  align-items: center;
+  background: var(--go-surface-raised);
+  border: 1px solid rgba(var(--go-warning-rgb), 0.3);
+  border-left: 3px solid var(--go-warning);
+  border-radius: 10px;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.late-appointment-details {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.late-appointment-details strong {
+  color: var(--go-text);
+}
+
+.late-appointment-details span {
+  color: var(--go-text-muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.late-appointment-delay {
+  color: var(--go-warning);
+  font-size: 0.78rem;
+}
+
+.late-appointment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.kpi-inline-action {
+  background: transparent;
+  border: 0;
+  color: var(--go-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  justify-self: start;
+  padding: 0;
+}
+
+.kpi-inline-action:hover,
+.kpi-inline-action:focus-visible {
+  color: var(--go-primary-hover);
+  text-decoration: underline;
+}
+
+.kpi-inline-action[hidden] {
+  display: none;
+}
+
+.fittings-overview-panel {
+  background: var(--go-surface);
+  border: 1px solid var(--go-border);
+  border-radius: 12px;
+  margin-top: 14px;
+  padding: 16px;
+}
+
+.fittings-overview-panel[hidden] {
+  display: none;
+}
+
+.fittings-overview-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.fitting-overview-item {
+  align-items: center;
+  background: var(--go-surface-raised);
+  border: 1px solid rgba(var(--go-info-rgb), 0.3);
+  border-left: 3px solid var(--go-primary);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px 14px;
+  grid-template-columns: minmax(56px, 0.35fr) minmax(150px, 1.2fr) minmax(100px, 0.7fr) minmax(140px, 1fr);
+  padding: 12px 14px;
+}
+
+.fitting-overview-item strong {
+  color: var(--go-text);
+  font-size: 1.05rem;
+}
+
+.fitting-overview-item span,
+.fitting-overview-item small {
+  color: var(--go-text-muted);
+  font-size: 0.82rem;
+}
+
+.fitting-overview-item small {
+  color: var(--go-primary);
+}
+
+.fittings-view {
+  min-width: 0;
+}
+
+.fittings-workspace-panel {
+  min-width: 0;
+}
+
+.fittings-workspace-summary {
+  align-items: baseline;
+  border-bottom: 1px solid var(--go-border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding-bottom: 14px;
+}
+
+.fittings-workspace-summary strong {
+  color: var(--go-text);
+}
+
+.fittings-workspace-summary span,
+.fittings-feedback,
+.fittings-empty {
+  color: var(--go-text-muted);
+  font-size: 0.84rem;
+}
+
+.fittings-feedback {
+  min-height: 1.2em;
+  margin: 14px 0 0;
+}
+
+.fittings-workspace-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.fitting-workspace-item {
+  align-items: center;
+  background: var(--go-surface-raised);
+  border: 1px solid rgba(var(--go-info-rgb), 0.3);
+  border-left: 3px solid var(--go-primary);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px 14px;
+  grid-template-columns: minmax(56px, 0.35fr) minmax(150px, 1.2fr) minmax(100px, 0.7fr) minmax(140px, 1fr) auto;
+  padding: 12px 14px;
+}
+
+.fitting-workspace-item strong {
+  color: var(--go-text);
+  font-size: 1.05rem;
+}
+
+.fitting-workspace-item span,
+.fitting-workspace-item small {
+  color: var(--go-text-muted);
+  font-size: 0.82rem;
+}
+
+.fitting-workspace-item small {
+  color: var(--go-primary);
+}
+
+.fitting-book-action {
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .late-overview-alert,
+  .late-appointment-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .late-overview-alert-action,
+  .late-appointment-actions .btn {
+    width: 100%;
+  }
+
+  .late-appointment-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fitting-overview-item,
+  .fitting-workspace-item {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fitting-book-action {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
 .control-page-heading {
   align-items: flex-end;
   display: flex;
@@ -325,6 +597,24 @@
   display: block;
   font-size: 1.7rem;
   margin: 14px 0 7px;
+}
+
+.control-kpi-card strong.today-next-list {
+  font-size: 0.86rem;
+  line-height: 1.45;
+  margin-top: 10px;
+}
+
+.today-next-item {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  white-space: nowrap;
+}
+
+.today-next-item time {
+  color: var(--gostudio-text);
+  font-variant-numeric: tabular-nums;
 }
 
 .control-kpi-card small {

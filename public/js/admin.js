@@ -29,7 +29,10 @@ import { abrirWhatsAppLembrete } from "./whatsapp.js";
 import { executarComandoOperacional } from "./operational-commands.js";
 
 const LIMITE_BARBEIROS = 5;
-let agendamentoParaConcluir = null;
+const operationalModalState = {
+  resolve: null,
+  previousFocus: null,
+};
 let barbeirosCache = [];
 let servicosCache = [];
 let planosAssinaturaCache = [];
@@ -43,6 +46,7 @@ const clientesNovoAgendamentoCache = new Map();
 let selecaoClienteNovoAgendamento = 0;
 const agendaEstado = {
   periodo: "todos",
+  dataSelecionada: "",
   barbeiro: "",
   status: "",
   servico: "",
@@ -51,7 +55,18 @@ const agendaEstado = {
   pagina: 1,
   tamanho: 20,
 };
+
+window.adminAgendaV2 = {
+  setDate(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    agendaEstado.dataSelecionada = date;
+    agendaEstado.periodo = "custom";
+    agendaEstado.pagina = 1;
+    carregarAgenda();
+  },
+};
 let buscaAgendaTimer = null;
+let agendaFeedbackTimer = null;
 let uidVinculoOriginal = "";
 let emailAcessoOriginal = "";
 let fechamentosCache = [];
@@ -386,6 +401,11 @@ async function carregarBarbeiros() {
     ...docSnap.data(),
   }));
   totalBarbeiros = snap.size;
+  window.dispatchEvent(
+    new CustomEvent("admin:barbers-loaded", {
+      detail: { professionals: barbeirosCache },
+    }),
+  );
 
   document.getElementById("limite-barbeiros").textContent =
     `${totalBarbeiros} de ${LIMITE_BARBEIROS} barbeiros cadastrados.`;
@@ -1770,6 +1790,20 @@ function rotuloStatus(status) {
   return rotulos[status] || "Agendado";
 }
 
+function anunciarAtualizacaoAgenda(mensagem, variante = "success") {
+  const feedback = document.getElementById("agenda-atualizada-feedback");
+  if (!feedback) return;
+  feedback.textContent = mensagem;
+  feedback.className = `agenda-refresh-feedback${variante === "error" ? " is-error" : ""}`;
+  clearTimeout(agendaFeedbackTimer);
+  agendaFeedbackTimer = setTimeout(() => {
+    if (feedback.textContent === mensagem) {
+      feedback.textContent = "";
+      feedback.className = "agenda-refresh-feedback";
+    }
+  }, 2500);
+}
+
 function acoesAgenda(agendamento) {
   if (
     !["agendado", "cliente_chegou", "em_atendimento"].includes(
@@ -1800,20 +1834,32 @@ function conectarAcoesAgenda(elemento, agendamento) {
     ?.addEventListener("click", () => abrirWhatsApp(agendamento));
   elemento
     .querySelector("[data-concluir-agendamento]")
-    ?.addEventListener("click", () => abrirModalConclusao(agendamento));
+    ?.addEventListener("click", (evento) =>
+      concluirComConfirmacao(agendamento, evento.currentTarget),
+    );
   elemento
     .querySelector("[data-chegada-agendamento]")
-    ?.addEventListener("click", () =>
-      atualizarStatusOperacional(agendamento, "cliente_chegou"),
+    ?.addEventListener("click", (evento) =>
+      atualizarStatusOperacional(
+        agendamento,
+        "cliente_chegou",
+        evento.currentTarget,
+      ),
     );
   elemento
     .querySelector("[data-iniciar-agendamento]")
-    ?.addEventListener("click", () =>
-      atualizarStatusOperacional(agendamento, "em_atendimento"),
+    ?.addEventListener("click", (evento) =>
+      atualizarStatusOperacional(
+        agendamento,
+        "em_atendimento",
+        evento.currentTarget,
+      ),
     );
   elemento
     .querySelector("[data-falta-agendamento]")
-    ?.addEventListener("click", () => marcarNaoCompareceu(agendamento));
+    ?.addEventListener("click", (evento) =>
+      marcarNaoCompareceu(agendamento, evento.currentTarget),
+    );
   elemento
     .querySelector("[data-cancelar-agendamento]")
     ?.addEventListener("click", () =>
@@ -1853,6 +1899,9 @@ function isoSomarDias(base, dias) {
 }
 
 function periodoAgenda() {
+  if (agendaEstado.dataSelecionada) {
+    return { inicio: agendaEstado.dataSelecionada, fim: agendaEstado.dataSelecionada };
+  }
   const hoje = dataLocalHoje();
   if (agendaEstado.periodo === "hoje") return { inicio: hoje, fim: hoje };
   if (agendaEstado.periodo === "amanha") {
@@ -1923,6 +1972,14 @@ async function carregarAgenda() {
     document.getElementById("agenda-pagina").textContent = "Página 1 de 1";
     document.getElementById("agenda-anterior").disabled = true;
     document.getElementById("agenda-proxima").disabled = true;
+    window.dispatchEvent(
+      new CustomEvent("admin:agenda-rendered", {
+        detail: {
+          appointments: [],
+          date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
+        },
+      }),
+    );
     return;
   }
 
@@ -2007,6 +2064,14 @@ async function carregarAgenda() {
     inicioPagina,
     inicioPagina + agendaEstado.tamanho,
   );
+  window.dispatchEvent(
+    new CustomEvent("admin:agenda-rendered", {
+      detail: {
+        appointments: filtrados,
+        date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
+      },
+    }),
+  );
   document.getElementById("agenda-contador").textContent =
     `${filtrados.length} agendamento${filtrados.length === 1 ? "" : "s"} encontrado${filtrados.length === 1 ? "" : "s"}`;
   document.getElementById("agenda-pagina").textContent =
@@ -2024,6 +2089,7 @@ async function carregarAgenda() {
   cards.innerHTML = "";
   pagina.forEach((a) => {
     const tr = document.createElement("tr");
+    tr.dataset.agendaId = a.id;
     tr.innerHTML = `
       <td><div class="agenda-date">${escaparHtml(formatarData(a.data))}<span>${escaparHtml(a.horario)}</span></div></td>
       <td class="agenda-client" title="${escaparHtml(a.cliente_nome)}">${escaparHtml(a.cliente_nome || "—")}</td>
@@ -2038,6 +2104,7 @@ async function carregarAgenda() {
 
     const card = document.createElement("article");
     card.className = "agenda-card";
+    card.dataset.agendaId = a.id;
     card.innerHTML = `<div class="agenda-card-top"><div class="agenda-card-time">${escaparHtml(a.horario)}<span>${escaparHtml(formatarData(a.data))}</span></div><span class="status-pill ${classeStatus(a.status)}">${rotuloStatus(a.status)}</span></div>
       <div><h3>${escaparHtml(a.cliente_nome || "—")}</h3><span class="agenda-card-phone">${formatarWhatsApp(a.cliente_whatsapp)}</span></div>
       <div class="agenda-card-details"><div><strong>Barbeiro</strong><span>${escaparHtml(a.barbeiro_nome || "—")}</span></div><div><strong>Serviço</strong><span>${escaparHtml(a.servico_nome || "—")}</span></div></div>${acoesAgenda(a)}`;
@@ -2046,10 +2113,11 @@ async function carregarAgenda() {
   });
 }
 
-document.querySelectorAll("[data-periodo]").forEach((botao) =>
-  botao.addEventListener("click", () => {
-    agendaEstado.periodo = botao.dataset.periodo;
-    agendaEstado.pagina = 1;
+  document.querySelectorAll("[data-periodo]").forEach((botao) =>
+    botao.addEventListener("click", () => {
+      agendaEstado.periodo = botao.dataset.periodo;
+      agendaEstado.dataSelecionada = "";
+      agendaEstado.pagina = 1;
     carregarAgenda();
   }),
 );
@@ -2106,6 +2174,7 @@ document
   ?.addEventListener("click", () => {
     Object.assign(agendaEstado, {
       periodo: "todos",
+      dataSelecionada: "",
       barbeiro: "",
       status: "",
       servico: "",
@@ -2126,125 +2195,214 @@ document.getElementById("agenda-proxima")?.addEventListener("click", () => {
   carregarAgenda();
 });
 
-function abrirModalConclusao(agendamento) {
-  agendamentoParaConcluir = agendamento;
-  document.getElementById("completion-details").innerHTML = `
+function detalhesAgendamentoOperacional(agendamento) {
+  return `
     <div><dt>Cliente</dt><dd>${escaparHtml(agendamento.cliente_nome || "—")}</dd></div>
     <div><dt>Barbeiro</dt><dd>${escaparHtml(agendamento.barbeiro_nome || "—")}</dd></div>
     <div><dt>Serviço</dt><dd>${escaparHtml(agendamento.servico_nome || "—")}</dd></div>
     <div><dt>Data e horário</dt><dd>${escaparHtml(formatarData(agendamento.data))} às ${escaparHtml(agendamento.horario || "—")}</dd></div>`;
-  document.getElementById("modal-concluir-atendimento").classList.add("show");
 }
 
-function fecharModalConclusao() {
-  document
-    .getElementById("modal-concluir-atendimento")
-    .classList.remove("show");
-  agendamentoParaConcluir = null;
+function fecharModalOperacional(confirmado = false) {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  const modal = backdrop?.querySelector("[role=dialog]");
+  if (!backdrop) return;
+  backdrop.classList.remove("show");
+  modal?.classList.remove("modal-operational--warning", "modal-operational--destructive");
+  const resolver = operationalModalState.resolve;
+  const previousFocus = operationalModalState.previousFocus;
+  operationalModalState.resolve = null;
+  operationalModalState.previousFocus = null;
+  resolver?.(confirmado);
+  if (previousFocus && typeof previousFocus.focus === "function") {
+    window.requestAnimationFrame(() => previousFocus.focus());
+  }
 }
 
-document
-  .getElementById("btn-voltar-conclusao")
-  ?.addEventListener("click", fecharModalConclusao);
-document
-  .getElementById("btn-confirmar-conclusao")
-  ?.addEventListener("click", async () => {
-    if (!agendamentoParaConcluir) return;
-    const btn = document.getElementById("btn-confirmar-conclusao");
-    btn.disabled = true;
-    btn.textContent = "Concluindo…";
-    try {
-      await concluirAgendamento(db, agendamentoParaConcluir, {
-        validarDuplicidade: true,
-      });
-      fecharModalConclusao();
-      await carregarAgenda();
-      await carregarRelatorio();
-    } catch (err) {
-      const texto =
-        err.message === "CREDITO_INDISPONIVEL"
-          ? "Não há crédito disponível nesta assinatura para concluir este atendimento."
-          : err.message === "ASSINATURA_SEM_VINCULO"
-            ? "Este agendamento de assinatura não possui vínculo de crédito válido."
-            : "Não foi possível concluir o atendimento. Tente novamente.";
-      alert(texto);
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Confirmar conclusão";
-    }
+function abrirModalOperacional({ type, title, description, appointment, confirmLabel, variant = "primary" }) {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  const modal = backdrop?.querySelector("[role=dialog]");
+  const eyebrow = document.getElementById("operational-modal-eyebrow");
+  const titleElement = document.getElementById("operational-modal-title");
+  const descriptionElement = document.getElementById("operational-modal-description");
+  const details = document.getElementById("operational-modal-details");
+  const confirmButton = document.getElementById("btn-operational-confirm");
+  if (!backdrop || !modal || !eyebrow || !titleElement || !descriptionElement || !details || !confirmButton) return Promise.resolve(false);
+
+  operationalModalState.previousFocus = document.activeElement;
+  eyebrow.textContent = type;
+  titleElement.textContent = title;
+  descriptionElement.textContent = description;
+  details.innerHTML = detalhesAgendamentoOperacional(appointment);
+  confirmButton.textContent = confirmLabel;
+  confirmButton.disabled = false;
+  modal.classList.remove("modal-operational--warning", "modal-operational--destructive");
+  if (variant === "warning" || variant === "destructive") modal.classList.add(`modal-operational--${variant}`);
+  backdrop.classList.add("show");
+  window.requestAnimationFrame(() => confirmButton.focus());
+  return new Promise((resolve) => { operationalModalState.resolve = resolve; });
+}
+
+document.getElementById("btn-operational-cancel")?.addEventListener("click", () => fecharModalOperacional(false));
+document.getElementById("btn-operational-confirm")?.addEventListener("click", () => {
+  const button = document.getElementById("btn-operational-confirm");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.textContent = "Processando…";
+  fecharModalOperacional(true);
+});
+document.getElementById("modal-operacional-confirmacao")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) fecharModalOperacional(false);
+});
+document.addEventListener("keydown", (event) => {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  if (event.key === "Escape" && backdrop?.classList.contains("show")) {
+    event.preventDefault();
+    fecharModalOperacional(false);
+  }
+});
+
+async function concluirComConfirmacao(agendamento, sourceButton) {
+  const confirmado = await abrirModalOperacional({
+    type: "Confirmar presença",
+    title: "Concluir atendimento?",
+    description: "Confirme que o cliente compareceu e o atendimento foi realizado.",
+    appointment: agendamento,
+    confirmLabel: "Confirmar conclusão",
   });
+  if (!confirmado) return;
+  const textoOriginal = sourceButton?.textContent || "";
+  if (sourceButton) { sourceButton.disabled = true; sourceButton.textContent = "Concluindo…"; }
+  try {
+    await concluirAgendamento(db, agendamento, { validarDuplicidade: true });
+    await carregarAgenda();
+    await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Atendimento concluído.");
+  } catch (err) {
+    const texto = err.message === "CREDITO_INDISPONIVEL"
+      ? "Não há crédito disponível nesta assinatura para concluir este atendimento."
+      : err.message === "ASSINATURA_SEM_VINCULO"
+        ? "Este agendamento de assinatura não possui vínculo de crédito válido."
+        : "Não foi possível concluir o atendimento. Tente novamente.";
+    anunciarAtualizacaoAgenda(texto, "error");
+    console.error(err);
+  } finally {
+    if (sourceButton) { sourceButton.disabled = false; sourceButton.textContent = textoOriginal; }
+  }
+}
 
 function abrirWhatsApp(agendamento) {
   abrirWhatsAppLembrete(agendamento);
 }
 
 async function cancelarAgendamentoAdmin(agendamento, btn) {
-  if (
-    !confirm(
-      "Cancelar este agendamento? Após cancelar, o WhatsApp abrirá com a mensagem para o cliente.",
-    )
-  )
-    return;
+  const confirmado = await abrirModalOperacional({
+    type: "Ação destrutiva",
+    title: "Cancelar agendamento",
+    description: "Confirme o cancelamento do agendamento selecionado.",
+    appointment: agendamento,
+    confirmLabel: "Cancelar agendamento",
+    variant: "destructive",
+  });
+  if (!confirmado) return;
   btn.disabled = true;
   try {
     await cancelarReserva(db, agendamento);
     abrirWhatsAppCancelamento(agendamento);
     await carregarAgenda();
     await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Agendamento cancelado.");
   } catch (err) {
-    alert("Não foi possível cancelar o agendamento. Tente novamente.");
+    anunciarAtualizacaoAgenda("Não foi possível cancelar o agendamento. Tente novamente.", "error");
     btn.disabled = false;
   }
 }
 
-async function atualizarStatusOperacional(agendamento, status) {
+async function atualizarStatusOperacional(agendamento, status, btn) {
   const mensagens = {
-    cliente_chegou: "Registrar que o cliente chegou?",
-    em_atendimento: "Iniciar este atendimento?",
+    cliente_chegou: {
+      type: "Confirmar chegada",
+      title: "Cliente chegou?",
+      description: "Confirme que o cliente chegou ao estabelecimento.",
+      confirmLabel: "Confirmar chegada",
+    },
+    em_atendimento: {
+      type: "Atendimento",
+      title: "Iniciar atendimento?",
+      description: "Confirme o início do atendimento deste cliente.",
+      confirmLabel: "Iniciar atendimento",
+    },
   };
-  if (!confirm(mensagens[status])) return;
+  const confirmado = await abrirModalOperacional({ ...mensagens[status], appointment: agendamento });
+  if (!confirmado) return;
+  const textoOriginal = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Atualizando…";
+  }
   try {
     await executarComandoOperacional(`agenda.${status}`, {
       data: { appointmentId: agendamento.id },
     });
     await carregarAgenda();
+    anunciarAtualizacaoAgenda("Status atualizado.");
   } catch (err) {
-    alert(
+    anunciarAtualizacaoAgenda(
       err.code === "permission-denied"
         ? "Você não possui permissão para alterar este atendimento."
         : "Não foi possível atualizar o atendimento.",
+      "error",
     );
     console.error("Falha ao atualizar status operacional.", err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 }
 
-async function marcarNaoCompareceu(agendamento) {
+async function marcarNaoCompareceu(agendamento, btn) {
   const avisoAssinatura =
     agendamento.origem === "assinatura"
       ? " Como é um atendimento por assinatura, 1 crédito será consumido."
       : "";
-  if (
-    !confirm(
-      `Marcar este cliente como não compareceu? Esta ação não contará para fidelidade nem faturamento.${avisoAssinatura}`,
-    )
-  )
-    return;
+  const confirmado = await abrirModalOperacional({
+    type: "Atenção",
+    title: "Cliente não compareceu?",
+    description: `Confirme que o cliente não compareceu ao horário agendado.${avisoAssinatura}`,
+    appointment: agendamento,
+    confirmLabel: "Confirmar ausência",
+    variant: "warning",
+  });
+  if (!confirmado) return;
+  const textoOriginal = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Atualizando…";
+  }
   try {
     await marcarNaoComparecimento(db, agendamento, {
       validarDuplicidade: true,
     });
     await carregarAgenda();
     await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Agendamento atualizado.");
   } catch (err) {
-    alert(
+    anunciarAtualizacaoAgenda(
       err.message === "CREDITO_INDISPONIVEL"
         ? "Não há crédito disponível nesta assinatura."
         : err.code === "permission-denied"
           ? "Você não possui permissão para alterar este atendimento."
           : "Não foi possível marcar a falta.",
+      "error",
     );
     console.error("Falha ao marcar não compareceu.", err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 }
 

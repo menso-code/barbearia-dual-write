@@ -1,0 +1,434 @@
+:root {
+  --go-bg: #080b10;
+  --go-surface: #111821;
+  --go-surface-raised: #151e29;
+  --go-border: rgba(148, 163, 184, 0.2);
+  --go-text: #f4f7fb;
+  --go-text-muted: #9aa7b5;
+  --go-primary: #4da3ff;
+  --go-primary-hover: #7fc1ff;
+  --go-primary-active: #2d8ee8;
+  --go-primary-soft: rgba(77, 163, 255, 0.16);
+  --go-success: #4ab984;
+  --go-warning: #f5b24f;
+  --go-danger: #ee796d;
+  --go-info: #4da3ff;
+  --go-success-rgb: 74, 185, 132;
+  --go-warning-rgb: 245, 178, 79;
+  --go-danger-rgb: 238, 121, 109;
+  --go-info-rgb: 77, 163, 255;
+
+  /* Backwards-compatible aliases for the Phase 1 shell. */
+  --gostudio-blue: var(--go-primary);
+  --gostudio-blue-strong: var(--go-primary-active);
+  --gostudio-surface: var(--go-surface);
+  --gostudio-surface-soft: var(--go-surface-raised);
+  --gostudio-border: var(--go-border);
+  --gostudio-muted: var(--go-text-muted);
+}
+
+.admin-page {
+  --admin-topbar-height: 80px;
+  --bg: var(--go-bg);
+  --surface: var(--go-surface);
+  --surface-2: var(--go-surface-raised);
+  --surface-3: #1b2633;
+  --control: #0c121a;
+  --text: var(--go-text);
+  --text-secondary: var(--go-text-muted);
+  --text-muted: var(--go-text-muted);
+  --muted: var(--go-text-muted);
+  --white: var(--go-text);
+  --border: var(--go-border);
+  --border-strong: rgba(148, 163, 184, 0.34);
+  --accent-rgb: var(--go-info-rgb);
+  --emerald-rgb: var(--go-info-rgb);
+  --green: var(--go-primary-active);
+  --green-light: var(--go-primary);
+  --green-dark: #123d68;
+  --success: var(--go-success);
+  --error: var(--go-danger);
+  --ivory: var(--go-text);
+  background: var(--go-bg);
+  color: var(--go-text);
+  overflow-x: hidden;
+}
+
+.admin-page .topbar {
+  min-height: var(--admin-topbar-height);
+}
+
+.admin-platform-brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.admin-platform-brand strong {
+  display: block;
+  color: #fff;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.admin-establishment-context {
+  color: var(--gostudio-muted);
+  display: block;
+  font-size: 0.76rem;
+  margin-top: 2px;
+}
+
+.admin-current-date {
+  color: var(--gostudio-muted);
+  font-size: 0.78rem;
+  text-transform: capitalize;
+}
+
+.admin-workspace {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  min-height: calc(100vh - var(--admin-topbar-height));
+}
+
+.admin-sidebar {
+  background: #0c1118;
+  border-right: 1px solid var(--gostudio-border);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 26px 14px 18px;
+}
+
+.admin-sidebar-heading {
+  padding: 0 12px;
+}
+
+.admin-sidebar-heading strong {
+  display: block;
+  font-size: 1rem;
+  margin-top: 4px;
+}
+
+.admin-sidebar-nav {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-sidebar-nav button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #b9c4d0;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: 11px;
+  min-height: 42px;
+  padding: 9px 12px;
+  text-align: left;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  width: 100%;
+}
+
+.admin-sidebar-nav button span {
+  color: #7e8b99;
+  font-size: 1.05rem;
+  line-height: 1;
+  width: 18px;
+}
+
+.admin-sidebar-nav button:hover,
+.admin-sidebar-nav button:focus-visible {
+  background: rgba(77, 163, 255, 0.1);
+  border-color: rgba(77, 163, 255, 0.28);
+  color: #fff;
+  outline: none;
+}
+
+.admin-sidebar-nav button.active {
+  background: rgba(77, 163, 255, 0.16);
+  border-color: rgba(77, 163, 255, 0.35);
+  color: #fff;
+}
+
+.admin-sidebar-nav button.active span {
+  color: var(--gostudio-blue);
+}
+
+.admin-sidebar-footer {
+  border-top: 1px solid var(--gostudio-border);
+  color: var(--gostudio-muted);
+  font-size: 0.72rem;
+  margin-top: auto;
+  padding: 16px 12px 0;
+}
+
+.admin-sidebar-footer strong {
+  color: #e8edf3;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 5px;
+}
+
+.admin-control-main {
+  max-width: none;
+  min-width: 0;
+  overflow-x: hidden;
+  padding-top: 34px;
+  width: 100%;
+}
+
+.admin-page .container.admin-control-main {
+  margin-inline: 0;
+}
+
+/* Legacy admin controls keep their behavior but use the GoEstudio blue role. */
+.admin-page a,
+.admin-page .eyebrow,
+.admin-page .btn-primary,
+.admin-page .admin-nav button.active,
+.admin-page .admin-nav button:hover,
+.admin-page .admin-nav button:focus-visible {
+  color: var(--go-primary);
+}
+
+.admin-page .btn-primary {
+  background: var(--go-primary);
+  border-color: transparent;
+  color: #061321;
+}
+
+.admin-page .btn-primary:hover {
+  background: var(--go-primary-hover);
+  color: #061321;
+}
+
+.admin-page button:focus-visible,
+.admin-page a:focus-visible,
+.admin-page input:focus-visible,
+.admin-page select:focus-visible,
+.admin-page textarea:focus-visible,
+.admin-page summary:focus-visible {
+  outline-color: var(--go-primary);
+}
+
+.admin-page .field input:focus,
+.admin-page .field select:focus,
+.admin-page .field textarea:focus,
+.admin-page .field-inline:focus {
+  border-color: var(--go-primary);
+  box-shadow: 0 0 0 4px rgba(var(--go-info-rgb), 0.14), inset 0 1px 1px rgba(0, 0, 0, 0.24);
+}
+
+/* Status colors remain semantic instead of becoming a second brand color. */
+.admin-page .status-agendado {
+  border-color: rgba(var(--go-info-rgb), 0.58);
+  color: var(--go-info);
+  background: rgba(var(--go-info-rgb), 0.16);
+}
+
+.admin-page .status-concluido,
+.admin-page .status-chegou {
+  border-color: rgba(var(--go-success-rgb), 0.72);
+  color: var(--go-success);
+  background: rgba(var(--go-success-rgb), 0.16);
+}
+
+.admin-page .status-atendimento {
+  border-color: rgba(var(--go-info-rgb), 0.82);
+  color: var(--go-text);
+  background: rgba(var(--go-info-rgb), 0.2);
+}
+
+.admin-page .status-cancelado {
+  border-color: rgba(var(--go-danger-rgb), 0.66);
+  color: var(--go-danger);
+  background: rgba(var(--go-danger-rgb), 0.1);
+}
+
+.admin-page .status-falta {
+  border-color: rgba(var(--go-warning-rgb), 0.68);
+  color: var(--go-warning);
+  background: rgba(var(--go-warning-rgb), 0.12);
+}
+
+.admin-page .agenda-refresh-feedback.is-error {
+  color: var(--go-danger);
+}
+
+.admin-page .modal-operational {
+  border-color: rgba(var(--go-info-rgb), 0.42);
+}
+
+.admin-page .modal-operational--warning {
+  border-color: rgba(var(--go-warning-rgb), 0.62);
+}
+
+.admin-page .modal-operational--destructive {
+  border-color: rgba(var(--go-danger-rgb), 0.62);
+}
+
+.admin-page .modal-operational--warning #btn-operational-confirm {
+  background: var(--go-warning);
+  color: #171006;
+}
+
+.admin-page .modal-operational--destructive #btn-operational-confirm {
+  background: var(--go-danger);
+  color: #210807;
+}
+
+.control-page-heading {
+  align-items: flex-end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.control-page-heading h2 {
+  margin: 5px 0 8px;
+}
+
+.control-page-description {
+  color: var(--gostudio-muted);
+  margin: 0;
+}
+
+.control-kpi-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.control-kpi-card,
+.control-panel {
+  background: var(--gostudio-surface);
+  border: 1px solid var(--gostudio-border);
+  border-radius: 14px;
+}
+
+.control-kpi-card {
+  min-height: 128px;
+  padding: 18px;
+}
+
+.control-kpi-card span,
+.control-kpi-card small {
+  color: var(--gostudio-muted);
+  display: block;
+}
+
+.control-kpi-card strong {
+  display: block;
+  font-size: 1.7rem;
+  margin: 14px 0 7px;
+}
+
+.control-kpi-card small {
+  font-size: 0.72rem;
+}
+
+.control-overview-panels {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr);
+}
+
+.control-panel {
+  padding: 22px;
+}
+
+.control-panel h3 {
+  margin: 5px 0 10px;
+}
+
+.control-panel p {
+  color: var(--gostudio-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.control-panel-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.control-placeholder-view .control-panel {
+  max-width: 700px;
+}
+
+.admin-sidebar-toggle {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .control-kpi-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .admin-workspace {
+    display: block;
+  }
+
+  .admin-sidebar {
+    border-bottom: 1px solid var(--gostudio-border);
+    border-right: 0;
+    display: none;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: var(--admin-topbar-height);
+    z-index: 20;
+  }
+
+  .admin-sidebar.is-open {
+    display: flex;
+  }
+
+  .admin-sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .admin-current-date {
+    display: none;
+  }
+
+  .admin-control-main {
+    min-width: 0;
+    padding-top: 24px;
+  }
+
+  .control-page-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .control-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .control-overview-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .control-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-platform-brand .brand-logo {
+    height: 34px;
+    width: 34px;
+  }
+
+  .admin-establishment-context {
+    max-width: 150px;
+  }
+}

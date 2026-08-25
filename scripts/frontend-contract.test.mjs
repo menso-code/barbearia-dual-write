@@ -7,6 +7,11 @@ const agenda = await read("public/js/agenda.js");
 const admin = await read("public/js/admin.js");
 const barber = await read("public/js/barber.js");
 const hmlAgenda = await read("public-hml/js/agenda.js");
+const adminHtml = await read("public/admin.html");
+const controlCenter = await read("public/js/admin-control-center.js");
+const controlCenterCss = await read("public/css/admin-control-center.css");
+const agendaV2 = await read("public/js/admin-agenda-v2.js");
+const agendaV2Css = await read("public/css/admin-agenda-v2.css");
 
 assert.match(agenda, /agenda\.cancelar", \{ data: \{ appointmentId: agendamento\.id \} \}/);
 assert.match(agenda, /agenda\.concluir", \{ data: \{ appointmentId: agendamento\.id \} \}/);
@@ -24,5 +29,100 @@ for (const command of ["cancelar", "concluir", "nao_compareceu"]) {
 assert.doesNotMatch(hmlAgenda, /agenda\.(?:cancelar|concluir|nao_compareceu)", \{\s*appointmentId:/);
 assert.doesNotMatch(admin, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
 assert.doesNotMatch(barber, /agenda\.\$\{status\}`, \{\s*appointmentId:/);
+
+for (const view of ["overview", "agenda", "clientes", "equipe", "servicos", "assinaturas", "funcionamento", "relatorios", "configuracoes"]) {
+  assert.match(adminHtml, new RegExp(`data-view="${view}"`), `Control Center view ausente: ${view}`);
+}
+assert.match(adminHtml, /class="admin-sidebar"/);
+assert.match(adminHtml, /GoEstudio/);
+assert.match(adminHtml, /id="view-overview"/);
+assert.match(adminHtml, /data-view="agenda"[^>]*>Abrir agenda/);
+assert.match(adminHtml, /css\/admin-control-center\.css/);
+assert.match(adminHtml, /js\/admin-control-center\.js/);
+assert.doesNotMatch(adminHtml, /PLACEHOLDER_NOT_CONNECTED/);
+assert.match(adminHtml, /data-view="overview"[^>]*aria-current="page"/);
+assert.equal(
+  [...adminHtml.matchAll(/<button[^>]+data-view="([^"]+)"/g)].filter(([, view]) => view === "relatorios").length,
+  1,
+  "Financeiro/Relatórios devem compartilhar uma única entrada canônica",
+);
+assert.match(controlCenter, /MutationObserver/);
+assert.match(controlCenter, /aria-current/);
+assert.match(controlCenter, /syncSidebarState/);
+assert.match(controlCenterCss, /--admin-topbar-height/);
+assert.match(controlCenterCss, /top: var\(--admin-topbar-height\)/);
+assert.match(adminHtml, /css\/admin-agenda-v2\.css/);
+assert.match(adminHtml, /js\/admin-agenda-v2\.js/);
+assert.match(adminHtml, /data-agenda-view="day-grid"[^>]*aria-pressed="true"/);
+assert.match(adminHtml, /data-agenda-view="list"/);
+assert.match(adminHtml, /id="agenda-v2-grid"/);
+assert.match(adminHtml, /data-agenda-date="previous"/);
+assert.match(adminHtml, /data-agenda-date="next"/);
+assert.match(adminHtml, /id="agenda-v2-quick-panel"/);
+assert.match(adminHtml, /id="admin-agenda-body"/);
+assert.match(adminHtml, /class="admin-establishment-context">Estabelecimento: Barbearia Antunes<\/span>/);
+assert.match(adminHtml, /id="modal-operacional-confirmacao"/);
+assert.match(adminHtml, /role="dialog"[\s\S]*aria-modal="true"/);
+assert.match(adminHtml, /id="btn-operational-confirm"/);
+assert.match(admin, /admin:agenda-rendered/);
+assert.match(admin, /admin:barbers-loaded/);
+assert.match(admin, /tr\.dataset\.agendaId = a\.id/);
+assert.match(agendaV2, /window\.adminAgendaV2\.setDate/);
+assert.match(agendaV2, /data-appointment-id/);
+assert.match(agendaV2, /data-quick-action/);
+assert.match(agendaV2, /data-chegada-agendamento/);
+assert.match(agendaV2, /data-concluir-agendamento/);
+assert.match(agendaV2, /data-falta-agendamento/);
+assert.match(agendaV2, /data-cancelar-agendamento/);
+assert.match(agendaV2, /Enviar lembrete/);
+assert.match(agendaV2, /data-whatsapp/);
+assert.match(agendaV2, /queueMicrotask/);
+assert.match(agendaV2, /selectedAppointmentId/);
+assert.doesNotMatch(agendaV2, /executeOperationalCommand|executarComandoOperacional|agenda\.(?:criar|reagendar|cancelar|concluir|nao_compareceu)/);
+assert.match(admin, /function anunciarAtualizacaoAgenda/);
+assert.match(admin, /function abrirModalOperacional/);
+assert.match(admin, /function concluirComConfirmacao/);
+assert.match(admin, /btn\.disabled = true/);
+assert.match(admin, /await carregarAgenda\(\)/);
+assert.doesNotMatch(admin, /window\.location\.reload\(\)/);
+for (const functionName of [
+  "concluirComConfirmacao",
+  "cancelarAgendamentoAdmin",
+  "atualizarStatusOperacional",
+  "marcarNaoCompareceu",
+]) {
+  const functionBlock = new RegExp(`(?:function|async function) ${functionName}[\\s\\S]*?(?=\\n(?:function|async function) |\\n(?:document|const|let) )`);
+  const match = admin.match(functionBlock);
+  assert.ok(match, `função operacional ausente: ${functionName}`);
+  assert.doesNotMatch(match[0], /window\.confirm|\bconfirm\(|window\.alert|\balert\(|window\.prompt|\bprompt\(/, `diálogo nativo em ${functionName}`);
+}
+assert.match(agendaV2Css, /grid-template-columns/);
+assert.match(agendaV2Css, /@media \(max-width: 767px\)/);
+assert.match(agendaV2Css, /position: sticky/);
+for (const token of [
+  "--go-bg",
+  "--go-surface",
+  "--go-surface-raised",
+  "--go-border",
+  "--go-text",
+  "--go-text-muted",
+  "--go-primary",
+  "--go-primary-hover",
+  "--go-primary-active",
+  "--go-primary-soft",
+  "--go-success",
+  "--go-warning",
+  "--go-danger",
+  "--go-info",
+]) {
+  assert.match(controlCenterCss, new RegExp(token.replaceAll("-", "\\-")), `token GoEstudio ausente: ${token}`);
+}
+assert.match(controlCenterCss, /\.admin-control-main\s*\{[\s\S]*max-width: none;[\s\S]*width: 100%;/);
+assert.match(agendaV2Css, /\.agenda-v2-grid\s*\{[\s\S]*width: 100%;/);
+assert.match(agendaV2Css, /\.agenda-v2-scroll\s*\{[\s\S]*max-width: 100%;[\s\S]*overflow: auto;/);
+assert.match(controlCenterCss, /\.admin-page \.status-concluido,[\s\S]*\.admin-page \.status-chegou/);
+assert.match(agendaV2Css, /\.agenda-v2-card\[data-status="cliente_chegou"\][\s\S]*--go-success-rgb/);
+assert.match(agendaV2Css, /\.agenda-v2-card\[data-status="em_atendimento"\][\s\S]*--go-info-rgb/);
+assert.doesNotMatch(agendaV2Css, /#4ab984|#35b779|#043a2c/);
 
 console.log("frontend contract self-test: PASS");

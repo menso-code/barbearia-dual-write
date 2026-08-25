@@ -14,6 +14,8 @@
     <link rel="icon" type="image/png" href="img/favicon-round.png" />
     <link rel="apple-touch-icon" href="img/logo-192.png" />
     <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/admin-control-center.css" />
+    <link rel="stylesheet" href="css/admin-agenda-v2.css" />
   </head>
   <body class="admin-page">
     <!-- Tela mostrada enquanto verifica permissão, ou se o usuário não for admin -->
@@ -29,31 +31,86 @@
 
     <div id="admin-shell" style="display: none">
       <div class="topbar">
-        <div class="brand">
+        <div class="brand admin-platform-brand">
           <img class="brand-logo" src="img/logo.png" alt="Barbearia Antunes" />
-          Barbearia<span class="brand-dot">Antunes</span>
-          <small>&nbsp;admin</small>
+          <div>
+            <strong>GoEstudio</strong>
+            <span class="admin-establishment-context">Estabelecimento: Barbearia Antunes</span>
+          </div>
         </div>
         <div class="nav-actions">
+          <button class="btn btn-ghost btn-sm admin-sidebar-toggle" type="button" aria-controls="admin-sidebar" aria-expanded="false">
+            Menu
+          </button>
+          <span class="admin-current-date" data-admin-current-date></span>
           <a class="btn btn-ghost btn-sm" href="app.html">Área do cliente</a>
           <button class="btn btn-ghost btn-sm" data-logout>Sair</button>
         </div>
       </div>
 
-      <div class="container">
-        <h1 class="sr-only">Painel administrativo</h1>
+      <div class="admin-workspace">
+        <aside class="admin-sidebar" id="admin-sidebar" aria-label="Navegação do Control Center">
+          <div class="admin-sidebar-heading">
+            <span class="eyebrow">GoEstudio</span>
+            <strong>Control Center</strong>
+          </div>
+          <nav class="admin-sidebar-nav" aria-label="Seções administrativas">
+            <button class="active" data-view="overview" aria-current="page" type="button"><span aria-hidden="true">◈</span>Visão Geral</button>
+            <button data-view="agenda" type="button"><span aria-hidden="true">▦</span>Agenda</button>
+            <button data-view="clientes" type="button"><span aria-hidden="true">◎</span>Clientes</button>
+            <button data-view="equipe" type="button"><span aria-hidden="true">♙</span>Profissionais</button>
+            <button data-view="servicos" type="button"><span aria-hidden="true">◇</span>Serviços</button>
+            <button data-view="assinaturas" type="button"><span aria-hidden="true">▱</span>Planos e Assinaturas</button>
+            <button data-view="funcionamento" type="button"><span aria-hidden="true">◷</span>Funcionamento</button>
+            <button data-view="relatorios" type="button"><span aria-hidden="true">↗</span>Financeiro</button>
+            <button data-view="configuracoes" type="button"><span aria-hidden="true">⚙</span>Configurações</button>
+          </nav>
+          <div class="admin-sidebar-footer">
+            <span>Estabelecimento atual</span>
+            <strong>Barbearia Antunes</strong>
+          </div>
+        </aside>
 
-        <nav class="sub-nav admin-nav" aria-label="Seções administrativas">
-          <button class="active" data-view="equipe">Barbeiros</button>
-          <button data-view="servicos">Serviços</button>
-          <button data-view="assinaturas">Assinaturas</button>
-          <button data-view="agenda">Todos os agendamentos</button>
-          <button data-view="funcionamento">Funcionamento</button>
-          <button data-view="relatorios">Financeiro</button>
-        </nav>
+        <main class="container admin-control-main">
+          <h1 class="sr-only">GoEstudio Control Center — Barbearia Antunes</h1>
+
+        <section class="view active admin-overview" id="view-overview" aria-labelledby="overview-title">
+          <div class="control-page-heading">
+            <div>
+              <span class="eyebrow">Visão Geral</span>
+              <h2 id="overview-title">Operação de hoje</h2>
+              <p class="control-page-description">Uma visão rápida do que precisa da sua atenção agora.</p>
+            </div>
+            <button class="btn btn-primary" type="button" data-view="agenda">Abrir agenda</button>
+          </div>
+          <div class="control-kpi-grid" aria-label="Indicadores operacionais">
+            <article class="control-kpi-card"><span>Agendamentos hoje</span><strong data-kpi="appointments">—</strong><small data-kpi-state="appointments">Disponível na Agenda</small></article>
+            <article class="control-kpi-card"><span>Clientes atendidos</span><strong data-kpi="clients">—</strong><small data-kpi-state="clients">Disponível em uma fase posterior</small></article>
+            <article class="control-kpi-card"><span>Ocupação</span><strong data-kpi="occupancy">—</strong><small data-kpi-state="occupancy">Disponível em uma fase posterior</small></article>
+            <article class="control-kpi-card"><span>Próximo atendimento</span><strong data-kpi="next">—</strong><small data-kpi-state="next">Disponível na Agenda</small></article>
+            <article class="control-kpi-card"><span>Profissionais ativos</span><strong data-kpi="professionals">—</strong><small data-kpi-state="professionals">Disponível em Profissionais</small></article>
+          </div>
+          <div class="control-overview-panels">
+            <article class="control-panel control-panel-primary">
+              <div class="control-panel-heading"><div><span class="eyebrow">Coração operacional</span><h3>Agenda</h3></div><button class="btn btn-ghost btn-sm" type="button" data-view="agenda">Ver todos</button></div>
+              <p>Consulte horários, status e ações rápidas sem sair do contexto do estabelecimento.</p>
+            </article>
+            <article class="control-panel"><span class="eyebrow">Contexto</span><h3>Barbearia Antunes</h3><p>Este estabelecimento está sendo gerenciado no Control Center GoEstudio.</p></article>
+          </div>
+        </section>
+
+        <section class="view control-placeholder-view" id="view-clientes" aria-labelledby="clientes-title">
+          <div class="control-page-heading"><div><span class="eyebrow">Relacionamento</span><h2 id="clientes-title">Clientes</h2><p class="control-page-description">A área de clientes será conectada em uma fase posterior.</p></div></div>
+          <article class="control-panel"><h3>Em preparação</h3><p>Os clientes continuam acessíveis pelos fluxos existentes de agendamento e assinaturas.</p></article>
+        </section>
+
+        <section class="view control-placeholder-view" id="view-configuracoes" aria-labelledby="configuracoes-title">
+          <div class="control-page-heading"><div><span class="eyebrow">Estabelecimento</span><h2 id="configuracoes-title">Configurações</h2><p class="control-page-description">A identidade configurável do estabelecimento será conectada após a definição do contrato de persistência.</p></div></div>
+          <article class="control-panel"><h3>Contexto atual</h3><p>GoEstudio é a plataforma. Barbearia Antunes é o estabelecimento em uso.</p></article>
+        </section>
 
         <!-- ===================== BARBEIROS ===================== -->
-        <section class="view active" id="view-equipe">
+        <section class="view" id="view-equipe">
           <div class="section-head">
             <div>
               <span class="eyebrow">Equipe</span>
@@ -214,8 +271,8 @@
         <section class="view" id="view-agenda">
           <div class="section-head">
             <div>
-              <span class="eyebrow">Visão geral</span>
-              <h2>Todos os agendamentos</h2>
+              <span class="eyebrow">Coração operacional</span>
+              <h2>Agenda operacional</h2>
             </div>
             <div class="agenda-header-actions">
               <button
@@ -229,6 +286,28 @@
                 + Novo agendamento
               </button>
             </div>
+          </div>
+          <div class="agenda-v2-toolbar" data-agenda-v2-toolbar>
+            <div class="agenda-v2-date-nav" aria-label="Navegação de data">
+              <button class="btn btn-ghost btn-sm" type="button" data-agenda-date="previous" aria-label="Dia anterior">← Dia anterior</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-agenda-date="today">Hoje</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-agenda-date="next" aria-label="Próximo dia">Próximo dia →</button>
+              <strong data-agenda-selected-date aria-live="polite"></strong>
+            </div>
+            <div class="agenda-v2-view-toggle" role="group" aria-label="Visualização da agenda">
+              <button class="btn btn-ghost btn-sm is-active" type="button" data-agenda-view="day-grid" aria-pressed="true">Dia</button>
+              <button class="btn btn-ghost btn-sm" type="button" data-agenda-view="list" aria-pressed="false">Lista</button>
+            </div>
+          </div>
+          <div class="agenda-v2-professional-picker" data-agenda-professional-picker aria-label="Profissional selecionado"></div>
+          <div class="agenda-v2-workspace" data-agenda-v2-workspace>
+            <div class="agenda-v2-grid-panel">
+              <div class="agenda-v2-scroll" tabindex="0" aria-label="Grade diária por profissional">
+                <div class="agenda-v2-grid" id="agenda-v2-grid" role="grid" aria-label="Agenda diária por profissional"></div>
+              </div>
+              <div class="agenda-v2-empty" id="agenda-v2-empty" hidden>Nenhum agendamento para este dia.</div>
+            </div>
+            <aside class="agenda-v2-quick-panel" id="agenda-v2-quick-panel" aria-label="Operações rápidas" hidden></aside>
           </div>
           <div class="agenda-filters" aria-label="Filtros de agendamentos">
             <div class="agenda-periods" role="group" aria-label="Período">
@@ -752,27 +831,38 @@
       </div>
     </div>
 
-    <!-- ===================== MODAL: CONCLUIR ATENDIMENTO ===================== -->
-    <div class="modal-backdrop" id="modal-concluir-atendimento">
-      <div class="modal modal-confirmation">
-        <span class="eyebrow">Confirmar presença</span>
-        <h3>Concluir atendimento?</h3>
-        <p>Confirme que o cliente compareceu e o atendimento foi realizado.</p>
-        <dl class="completion-details" id="completion-details"></dl>
+    <!-- ===================== MODAL: CONFIRMAÇÃO OPERACIONAL ===================== -->
+    <div
+      class="modal-backdrop"
+      id="modal-operacional-confirmacao"
+      role="presentation"
+    >
+      <div
+        class="modal modal-confirmation modal-operational"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="operational-modal-title"
+        aria-describedby="operational-modal-description"
+        tabindex="-1"
+      >
+        <span class="eyebrow" id="operational-modal-eyebrow">Confirmação</span>
+        <h3 id="operational-modal-title">Confirmar ação?</h3>
+        <p id="operational-modal-description"></p>
+        <dl class="completion-details" id="operational-modal-details"></dl>
         <div class="modal-actions">
           <button
             type="button"
             class="btn btn-ghost btn-block"
-            id="btn-voltar-conclusao"
+            id="btn-operational-cancel"
           >
             Voltar
           </button>
           <button
             type="button"
             class="btn btn-primary btn-block"
-            id="btn-confirmar-conclusao"
+            id="btn-operational-confirm"
           >
-            Confirmar conclusão
+            Confirmar
           </button>
         </div>
       </div>
@@ -944,7 +1034,13 @@
       </div>
     </div>
 
+        </main>
+      </div>
+    </div>
+
     <script type="module" src="js/admin.js"></script>
+    <script type="module" src="js/admin-control-center.js"></script>
+    <script type="module" src="js/admin-agenda-v2.js"></script>
     <script defer src="js/pwa-install.js"></script>
   </body>
 </html>

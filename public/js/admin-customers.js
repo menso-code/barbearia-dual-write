@@ -3,7 +3,7 @@ import {
   filterCustomerRecords,
   statusLabel,
 } from "./admin-customers-core.mjs";
-import { formatarNumeroWhatsApp } from "./whatsapp.js";
+import { formatarNumeroWhatsApp, normalizarNumeroWhatsApp } from "./whatsapp.js";
 
 const state = {
   source: null,
@@ -50,6 +50,11 @@ function renderSubscriptionCell(customer) {
   return `<span class="cliente-subscription"><span class="cliente-subscription-status" data-status="${escapeHtml(customer.subscription.status)}">${escapeHtml(customer.subscription.status)}</span><span class="cliente-muted">${escapeHtml(customer.subscription.planName || "")}</span></span>`;
 }
 
+function renderDetailAppointment(appointment, emptyLabel) {
+  if (!appointment) return `<span class="cliente-detail-empty">${escapeHtml(emptyLabel)}</span>`;
+  return `<span class="cliente-detail-value"><strong>${escapeHtml(formatDate(appointment.data))}</strong><span>${escapeHtml(appointment.horario || "Horário não informado")}</span></span>`;
+}
+
 function renderTable(records) {
   const body = document.getElementById("clientes-tabela-corpo");
   body.innerHTML = records.map((customer) => `
@@ -92,17 +97,26 @@ function renderDetail(customer) {
   }
 
   panel.hidden = false;
+  const whatsapp = normalizarNumeroWhatsApp(customer.phone);
   panel.innerHTML = `
     <div class="cliente-detail-head">
       <div><span class="eyebrow">Cliente</span><h3>${escapeHtml(customer.name)}</h3><p class="cliente-detail-contact">${escapeHtml(customer.phone ? formatarNumeroWhatsApp(customer.phone) : "Telefone não cadastrado")}</p></div>
       <button class="btn btn-ghost btn-sm cliente-detail-close" type="button" data-close-customer aria-label="Fechar detalhes do cliente">×</button>
     </div>
     <dl class="cliente-detail-stats">
-      <div><dt>Atendimentos</dt><dd>${customer.totalAppointments}</dd></div>
+      <div><dt>Próximo atendimento</dt><dd>${renderDetailAppointment(customer.nextAppointment, "Nenhum")}</dd></div>
+      <div><dt>Último concluído</dt><dd>${renderDetailAppointment(customer.lastAppointment, "Nenhum atendimento concluído")}</dd></div>
+      <div><dt>Total de atendimentos</dt><dd>${customer.totalAppointments}</dd></div>
+      <div><dt>Não compareceu</dt><dd>${customer.noShowCount}</dd></div>
+      <div><dt>Cancelamentos</dt><dd>${customer.cancellationCount}</dd></div>
       <div><dt>Assinatura</dt><dd>${escapeHtml(subscriptionLabel(customer))}</dd></div>
     </dl>
-    <span class="cliente-detail-history-title">Histórico de atendimentos</span>
-    <div class="cliente-detail-history">
+    <div class="cliente-detail-actions" aria-label="Ações do cliente">
+      ${whatsapp ? `<a class="btn btn-ghost btn-sm" href="https://wa.me/${escapeHtml(whatsapp)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : '<span class="cliente-muted">WhatsApp indisponível</span>'}
+      <button class="btn btn-ghost btn-sm" type="button" data-show-customer-history>Ver histórico</button>
+    </div>
+    <span class="cliente-detail-history-title" id="cliente-detail-history-title">Histórico de atendimentos</span>
+    <div class="cliente-detail-history" tabindex="-1" aria-labelledby="cliente-detail-history-title">
       ${customer.appointments.length
         ? customer.appointments.map((appointment) => `<article class="cliente-history-item"><strong>${escapeHtml(formatDate(appointment.data))} · ${escapeHtml(appointment.horario || "Horário não informado")}</strong><span>${escapeHtml(statusLabel(appointment.status))}${appointment.servico_nome ? ` · ${escapeHtml(appointment.servico_nome)}` : ""}</span></article>`).join("")
         : '<p class="cliente-muted">Nenhum atendimento registrado.</p>'}
@@ -111,6 +125,11 @@ function renderDetail(customer) {
   panel.querySelector("[data-close-customer]")?.addEventListener("click", () => {
     state.selectedId = "";
     renderDetail(null);
+  });
+  panel.querySelector("[data-show-customer-history]")?.addEventListener("click", () => {
+    const history = panel.querySelector(".cliente-detail-history");
+    history?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    history?.focus({ preventScroll: true });
   });
 }
 

@@ -162,14 +162,21 @@ export function buildCustomerRecords({
         .filter((appointment) => appointmentIsFuture(appointment, now))
         .sort((a, b) => appointmentEpoch(a) - appointmentEpoch(b));
       const subscription = summarizeSubscription(customer.subscriptions, now);
+      const completedAppointments = appointmentsForCustomer.filter(
+        (appointment) => appointmentEpoch(appointment) < now.getTime()
+          && text(appointment.status).toLowerCase() === "concluido",
+      );
       return {
         ...customer,
         appointments: appointmentsForCustomer,
         totalAppointments: appointmentsForCustomer.length,
-        lastAppointment: appointmentsForCustomer.find(
-          (appointment) => appointmentEpoch(appointment) < now.getTime()
-            && text(appointment.status).toLowerCase() === "concluido",
-        ) || null,
+        lastAppointment: completedAppointments[0] || null,
+        noShowCount: appointmentsForCustomer.filter(
+          (appointment) => text(appointment.status).toLowerCase() === "nao_compareceu",
+        ).length,
+        cancellationCount: appointmentsForCustomer.filter(
+          (appointment) => text(appointment.status).toLowerCase() === "cancelado",
+        ).length,
         nextAppointment: future[0] || null,
         subscription,
       };

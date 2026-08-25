@@ -2,12 +2,63 @@
   align-items: start;
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.95fr);
 }
 
 .studio-settings-form,
 .studio-settings-preview {
   min-width: 0;
+}
+
+.studio-settings-preview {
+  position: static;
+}
+
+.studio-settings-notice {
+  align-items: baseline;
+  background: rgba(var(--go-info-rgb), 0.07);
+  border-left: 2px solid var(--go-primary);
+  color: var(--go-text-muted);
+  display: flex;
+  gap: 8px;
+  line-height: 1.5;
+  margin-bottom: 22px;
+  padding: 10px 12px;
+}
+
+.studio-settings-notice strong {
+  color: var(--go-primary);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.studio-settings-notice span {
+  font-size: 0.78rem;
+}
+
+.studio-settings-groups {
+  display: grid;
+  gap: 20px;
+}
+
+.studio-settings-group {
+  border: 0;
+  border-top: 1px solid var(--go-border);
+  margin: 0;
+  min-width: 0;
+  padding: 19px 0 0;
+}
+
+.studio-settings-group:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.studio-settings-group legend {
+  color: var(--go-text);
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 0 10px 0 0;
 }
 
 .studio-settings-section-heading {
@@ -129,22 +180,11 @@
 }
 
 .studio-settings-actions {
-  align-items: center;
-  border-top: 1px solid var(--go-border);
-  display: flex;
-  gap: 12px;
-  margin-top: 18px;
-  padding-top: 18px;
-}
-
-.studio-settings-actions span {
   color: var(--go-text-muted);
   font-size: 0.75rem;
-}
-
-.studio-settings-actions .btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
+  border-top: 1px solid var(--go-border);
+  margin-top: 18px;
+  padding-top: 18px;
 }
 
 .studio-preview-shell {
@@ -232,6 +272,10 @@
   .studio-settings-layout {
     grid-template-columns: 1fr;
   }
+
+  .studio-settings-preview {
+    position: static;
+  }
 }
 
 @media (max-width: 600px) {
@@ -243,12 +287,16 @@
     grid-template-columns: 1fr;
   }
 
-  .studio-settings-actions {
-    align-items: stretch;
+  .studio-settings-notice {
+    align-items: flex-start;
     flex-direction: column;
+    gap: 2px;
   }
+}
 
-  .studio-settings-actions .btn {
-    width: 100%;
+@media (min-width: 901px) {
+  .studio-settings-preview {
+    position: sticky;
+    top: calc(var(--admin-topbar-height) + 24px);
   }
 }

@@ -20,12 +20,25 @@ const [html, js, css] = await Promise.all([
 assert.match(html, /data-view="configuracoes"/);
 assert.match(html, /id="studio-settings-form"/);
 assert.match(html, /id="studio-preview-shell"/);
-assert.match(html, /id="studio-settings-save"[^>]*disabled/);
+assert.match(html, /class="studio-settings-notice"[\s\S]*Pré-visualização local/);
+assert.doesNotMatch(html, /id="studio-settings-save"/);
+assert.match(html, /Salvamento indisponível nesta V1/);
+for (const section of ["Identidade", "Aparência", "Contato", "Localização", "Institucional"]) {
+  assert.match(html, new RegExp(`<legend>${section}</legend>`));
+}
+assert.match(html, /Logo do estabelecimento/);
+assert.match(html, /Favicon/);
+assert.match(html, /Telefone comercial/);
+assert.match(html, /WhatsApp para clientes/);
+assert.match(html, /Upload será disponibilizado em uma próxima versão/);
+assert.match(html, /Cor principal[\s\S]*Usada nos principais destaques/);
+assert.match(html, /Cor de destaque[\s\S]*Usada em elementos secundários e detalhes visuais/);
 assert.match(html, /css\/admin-studio-settings\.css/);
 assert.match(html, /js\/admin-studio-settings\.js/);
 assert.match(js, /studioSettingsChanged/);
 assert.match(js, /addEventListener\("input", render\)/);
-assert.match(css, /grid-template-columns: minmax\(0, 1\.35fr\)/);
+assert.match(css, /grid-template-columns: minmax\(0, 1\.2fr\)/);
+assert.match(css, /@media \(min-width: 901px\)[\s\S]*position: sticky/);
 assert.match(css, /@media \(max-width: 600px\)/);
 assert.doesNotMatch(js, /getDoc|getDocs|setDoc|addDoc|executeOperationalCommand/);
 

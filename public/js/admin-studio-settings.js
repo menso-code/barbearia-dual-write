@@ -10,7 +10,6 @@ if (!form) {
 } else {
   const status = document.getElementById("studio-settings-status");
   const feedback = document.getElementById("studio-settings-feedback");
-  const saveButton = document.getElementById("studio-settings-save");
   const fieldNames = Object.keys(STUDIO_SETTINGS_DEFAULTS);
   const fields = Object.fromEntries(fieldNames.map((name) => [name, form.elements.namedItem(name)]));
   const preview = {
@@ -70,7 +69,6 @@ if (!form) {
       }
     }
     const changed = studioSettingsChanged(result.values, initial);
-    saveButton.disabled = true;
     status.textContent = changed ? "Alterações locais não salvas" : "Somente visualização";
     status.dataset.state = changed ? "unsaved" : "readonly";
     setFeedback(result.valid ? "Pré-visualização atualizada localmente." : "Revise os campos destacados para atualizar a prévia.", result.valid ? "success" : "error");
@@ -78,7 +76,7 @@ if (!form) {
   }
 
   for (const field of Object.values(fields)) field?.addEventListener("input", render);
-  for (const [textName, pickerName] of [["primaryColor", "primaryColorPicker"], ["accentColor", "accentColorPicker"]]) {
+  for (const textName of ["primaryColor", "accentColor"]) {
     const textField = fields[textName];
     const picker = document.getElementById(`studio-${textName.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-picker`);
     picker?.addEventListener("input", () => {

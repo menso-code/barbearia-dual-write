@@ -11,7 +11,6 @@ const validIdentity = {
   nome: "Estúdio A",
   nomeCurto: "A",
   logo: "https://cdn.example/tenant-a/logo.png",
-  favicon: "/assets/tenant-a/favicon.png",
   primaryColor: "#123abc",
   accentColor: "#ABCDEF",
   telefone: "(11) 99999-9999",
@@ -27,6 +26,7 @@ assert.match(runtime, /updatedAt: nowTimestampField\(\)/);
 assert.match(runtime, /updatedBy: uid/);
 assert.doesNotMatch(runtime, /mirror(?:Set|Update)\(tx, "configuracoes", "identidade"/);
 assert.deepEqual(new Set(STUDIO_IDENTITY_FIELDS), new Set(Object.keys(validIdentity)));
+assert.equal(STUDIO_IDENTITY_FIELDS.includes("favicon"), false);
 
 const normalized = normalizeStudioIdentityData(validIdentity);
 assert.equal(normalized.primaryColor, "#123ABC");
@@ -38,6 +38,7 @@ assert.equal("updatedAt" in normalized, false);
 assert.equal("updatedBy" in normalized, false);
 
 assert.throws(() => normalizeStudioIdentityData({ ...validIdentity, tenantId: "tenant-b" }), /Campo não permitido/);
+assert.throws(() => normalizeStudioIdentityData({ ...validIdentity, favicon: "/global/favicon.png" }), /Campo não permitido/);
 assert.throws(() => normalizeStudioIdentityData({ ...validIdentity, unknown: true }), /Campo não permitido/);
 assert.throws(() => normalizeStudioIdentityData({ ...validIdentity, nome: "x".repeat(121) }), /Texto inválido/);
 assert.throws(() => normalizeStudioIdentityData({ ...validIdentity, institucional: "x".repeat(2001) }), /Texto inválido/);

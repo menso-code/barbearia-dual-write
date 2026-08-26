@@ -17,7 +17,7 @@ Fonte normativa: `functions/dual-write.js`. O envelope callable é `{ command, r
 | agenda.cancelar | `appointmentId` | ADMIN, barbeiro dono ou cliente do agendamento | agendamento Legado/V2; ocupações removidas; crédito reservado liberado | estado ativo; crédito inválido |
 | agenda.nao_compareceu | `appointmentId` | ADMIN ou barbeiro dono | agendamento Legado/V2; ocupações removidas; crédito consumido quando assinatura | estado ativo; crédito inválido |
 | admin.funcionamento.salvar | intervalo, períodos, dias fechados | ADMIN do tenant | funcionamento Legado/V2, transação | campos extras/intervalo inválidos |
-| admin.estudio.identidade.salvar | identidade visual permitida | ADMIN ativo no membership do tenant resolvido | documento V2 `barbearias/{tenantId}/configuracoes/identidade`, sem mirror legado, transação | requestId; tenantId/campos extras, cores, URLs e limites inválidos |
+| admin.estudio.identidade.salvar | identidade visual permitida (nome, logo, cores e dados institucionais; favicon é global GoEstudio) | ADMIN ativo no membership do tenant resolvido | documento V2 `barbearias/{tenantId}/configuracoes/identidade`, sem mirror legado, transação | requestId; tenantId/campos extras, favicon tenant-scoped, cores, URLs e limites inválidos |
 | admin.abertura.salvar/remover | data, horários, motivo | ADMIN do tenant | fechamento global Legado/V2, transação | horários/IDs inválidos |
 | admin.fechamento.salvar/remover | datas, período, motivo, IDs | ADMIN do tenant | fechamentos globais Legado/V2, transação | período/IDs inválidos |
 | admin.barbeiro.salvar | cadastro e `email_acesso` | ADMIN do tenant | barbeiro, vínculo/membro e índice de e-mail, transação | `tx.create` do índice; conflito de unicidade |

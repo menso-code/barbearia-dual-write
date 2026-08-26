@@ -130,6 +130,8 @@ assert.doesNotMatch(customers, /executarComandoOperacional|executeOperationalCom
 assert.match(adminHtml, /id="studio-settings-form"/);
 assert.match(adminHtml, /id="studio-settings-save"/);
 assert.match(adminHtml, /id="studio-settings-discard"/);
+assert.match(adminHtml, /<link rel="icon" type="image\/png" href="img\/favicon-round\.png" \/>/);
+assert.doesNotMatch(adminHtml, /id="studio-favicon"|id="studio-preview-favicon"|name="favicon"/);
 assert.match(studioSettings, /doc\(db, "barbearias", BARBEARIA_ATUAL_ID, "configuracoes", "identidade"\)/);
 assert.match(studioSettings, /getDoc\(identityRef\)/);
 assert.match(studioSettings, /admin\.estudio\.identidade\.salvar/);

@@ -81,7 +81,6 @@ Configurações previstas:
 
 - nome do estabelecimento;
 - logo;
-- favicon/ícone;
 - nome curto;
 - cor principal do estabelecimento;
 - cor de destaque;
@@ -91,6 +90,12 @@ Configurações previstas:
 - endereço;
 - Instagram/redes sociais;
 - informações institucionais.
+
+O favicon permanece global do GoEstudio e não é configurável por estabelecimento.
+`GOESTUDIO_FAVICON = GLOBAL` · `TENANT_FAVICON_CONFIGURABLE = NÃO`.
+
+A futura URL pública do estabelecimento seguirá o modelo `FUTURE_SUBDOMAIN`, por exemplo:
+`barbeariaantunes.goestudio.com.br`. DNS, wildcard e resolução de subdomínio não fazem parte desta fase.
 
 A interface deverá oferecer **pré-visualização em tempo real** da identidade aplicada ao painel e, futuramente, às experiências do cliente e de agendamento.
 

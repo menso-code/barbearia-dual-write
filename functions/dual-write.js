@@ -16,7 +16,7 @@ import { emailAutorizado, normalizarEmail, unirPapeisPrimeiroVinculo } from "./f
 const TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
 const STUDIO_IDENTITY_ID = "identidade";
 export const STUDIO_IDENTITY_FIELDS = Object.freeze([
-  "nome", "nomeCurto", "logo", "favicon", "primaryColor", "accentColor",
+  "nome", "nomeCurto", "logo", "primaryColor", "accentColor",
   "telefone", "whatsapp", "instagram", "endereco", "institucional",
 ]);
 const ALLOWED_PROJECTS = new Set(["barber-a01e7", "teste-483f6"]);
@@ -171,7 +171,6 @@ export function normalizeStudioIdentityData(input = {}) {
   if (!normalized.nome) error("invalid-argument", "Nome do estabelecimento obrigatório.");
   if (Object.hasOwn(incoming, "nomeCurto")) normalized.nomeCurto = cleanText(incoming.nomeCurto, 48);
   if (Object.hasOwn(incoming, "logo")) normalized.logo = cleanIdentityReference(incoming.logo);
-  if (Object.hasOwn(incoming, "favicon")) normalized.favicon = cleanIdentityReference(incoming.favicon);
   if (Object.hasOwn(incoming, "primaryColor")) normalized.primaryColor = cleanIdentityColor(incoming.primaryColor);
   if (Object.hasOwn(incoming, "accentColor")) normalized.accentColor = cleanIdentityColor(incoming.accentColor);
   if (Object.hasOwn(incoming, "telefone")) normalized.telefone = cleanPhone(incoming.telefone);

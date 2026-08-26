@@ -24,7 +24,6 @@ if (form) {
     name: document.getElementById("studio-preview-name"),
     shortName: document.getElementById("studio-preview-short-name"),
     logo: document.getElementById("studio-preview-logo"),
-    favicon: document.getElementById("studio-preview-favicon"),
     address: document.getElementById("studio-preview-address"),
     phone: document.getElementById("studio-preview-phone"),
     instagram: document.getElementById("studio-preview-instagram"),
@@ -106,13 +105,6 @@ if (form) {
       preview.logo.removeAttribute("src");
     }
     preview.logo.alt = values.name ? `Logo de ${values.name}` : "Logo do estabelecimento";
-    if (result.valid && values.favicon && isSafePreviewReference(values.favicon)) {
-      preview.favicon.hidden = false;
-      preview.favicon.src = values.favicon;
-    } else {
-      preview.favicon.hidden = true;
-      preview.favicon.removeAttribute("src");
-    }
   }
 
   function render(options = {}) {
@@ -205,10 +197,6 @@ if (form) {
   preview.logo.addEventListener("error", () => {
     preview.logo.hidden = true;
     setFeedback("A referência da logo não pôde ser carregada na prévia.", "error");
-  });
-  preview.favicon.addEventListener("error", () => {
-    preview.favicon.hidden = true;
-    setFeedback("A referência do favicon não pôde ser carregada na prévia.", "error");
   });
   form.addEventListener("submit", (event) => {
     event.preventDefault();

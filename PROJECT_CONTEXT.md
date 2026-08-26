@@ -168,7 +168,8 @@ ESTRUTURA ATUAL
 - Não usar fontes decorativas nos horários/números.
 - Manter boa legibilidade.
 - Logo da Barbearia Antunes.
-- Favicon utilizando a logo da barbearia.
+- Favicon global do GoEstudio; não é configurável por estabelecimento (`GOESTUDIO_FAVICON = GLOBAL`, `TENANT_FAVICON_CONFIGURABLE = NÃO`).
+- URL pública futura do estabelecimento: `FUTURE_SUBDOMAIN`, por exemplo `barbeariaantunes.goestudio.com.br`; DNS e resolução de subdomínio permanecem fora desta fase.
 - Foto de perfil aceita JPG, JPEG, PNG e WebP de até 5 MB. A imagem é otimizada no navegador (proporção preservada, lado máximo de 1600 px e preferência por WebP) e armazenada compactada no próprio perfil do Firestore, sem depender do Firebase Storage ou de plano pago.
 - No Admin, o cadastro e a edição de barbeiros usam o mesmo fluxo de foto por galeria: prévia, substituição ou remoção, validação de 5 MB e otimização no navegador antes de salvar o campo `foto` do barbeiro no Firestore.
 - No mobile, as regras compactas do cabeçalho da Área do Cliente estão isoladas com a classe `app-shell`; assim, o menu de três pontos do cliente não oculta ou interfere nas ações dos cabeçalhos Admin e Barbeiro.

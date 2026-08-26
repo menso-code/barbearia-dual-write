@@ -234,25 +234,6 @@
   width: 100%;
 }
 
-.studio-preview-favicon-frame {
-  align-items: center;
-  background: var(--go-surface);
-  border: 1px solid var(--go-border);
-  border-radius: 8px;
-  display: flex;
-  height: 30px;
-  justify-content: center;
-  margin-left: auto;
-  overflow: hidden;
-  width: 30px;
-}
-
-.studio-preview-favicon-frame img {
-  height: 100%;
-  object-fit: cover;
-  width: 100%;
-}
-
 .studio-preview-brand-row strong,
 .studio-preview-brand-row span,
 .studio-preview-contact-row span {

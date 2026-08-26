@@ -4,7 +4,6 @@ export const STUDIO_SETTINGS_DEFAULTS = Object.freeze({
   name: "Barbearia Antunes",
   shortName: "",
   logo: "",
-  favicon: "",
   primaryColor: "#64748B",
   accentColor: "#94A3B8",
   phone: "",
@@ -20,7 +19,6 @@ const BACKEND_FIELD_BY_FORM_FIELD = Object.freeze({
   name: "nome",
   shortName: "nomeCurto",
   logo: "logo",
-  favicon: "favicon",
   primaryColor: "primaryColor",
   accentColor: "accentColor",
   phone: "telefone",
@@ -88,7 +86,7 @@ export function validateStudioSettings(input = {}) {
   if (!values.name) errors.name = "Informe o nome do estabelecimento.";
   if (values.name.length > 120) errors.name = "Use no máximo 120 caracteres.";
   if (values.shortName.length > 48) errors.shortName = "Use no máximo 48 caracteres.";
-  for (const key of ["logo", "favicon"]) {
+  for (const key of ["logo"]) {
     if (values[key].length > 2048 || !isSafePreviewReference(values[key])) {
       errors[key] = "Use uma URL HTTPS ou uma referência local segura.";
     }

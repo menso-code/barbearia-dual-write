@@ -22,7 +22,6 @@ const [html, js, css] = await Promise.all([
 assert.match(html, /data-view="configuracoes"/);
 assert.match(html, /id="studio-settings-form"/);
 assert.match(html, /id="studio-preview-shell"/);
-assert.match(html, /id="studio-preview-favicon"/);
 assert.match(html, /class="studio-settings-notice"[\s\S]*Identidade do estabelecimento/);
 assert.match(html, /id="studio-settings-save"/);
 assert.match(html, /id="studio-settings-discard"/);
@@ -31,7 +30,7 @@ for (const section of ["Identidade", "Aparência", "Contato", "Localização", "
   assert.match(html, new RegExp(`<legend>${section}</legend>`));
 }
 assert.match(html, /Logo do estabelecimento/);
-assert.match(html, /Favicon/);
+assert.doesNotMatch(html, /id="studio-favicon"|id="studio-preview-favicon"|name="favicon"/);
 assert.match(html, /Telefone comercial/);
 assert.match(html, /WhatsApp para clientes/);
 assert.match(html, /referência HTTPS ou um caminho relativo seguro/);
@@ -44,7 +43,7 @@ assert.match(js, /addEventListener\("input", render\)/);
 assert.match(js, /getDoc\(identityRef\)/);
 assert.match(js, /admin\.estudio\.identidade\.salvar/);
 assert.match(js, /studioSettingsToBackendPayload/);
-assert.match(js, /studio-preview-favicon/);
+assert.doesNotMatch(js, /favicon/i);
 assert.match(js, /preserveError/);
 assert.match(js, /Suas alterações foram preservadas/);
 assert.match(js, /state = "LOADING"/);
@@ -55,6 +54,7 @@ assert.match(css, /@media \(max-width: 600px\)/);
 assert.doesNotMatch(js, /setDoc|addDoc|updateDoc|deleteDoc/);
 assert.doesNotMatch(js, /window\.(?:alert|confirm|prompt)/);
 assert.doesNotMatch(js, /document\.documentElement/);
+assert.doesNotMatch(await read("public/js/admin-studio-settings-core.mjs"), /favicon/i);
 
 assert.equal(validateStudioSettings(STUDIO_SETTINGS_DEFAULTS).valid, true);
 assert.equal(validateStudioSettings({ ...STUDIO_SETTINGS_DEFAULTS, name: "" }).valid, false);

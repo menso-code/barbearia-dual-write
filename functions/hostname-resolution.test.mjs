@@ -137,7 +137,7 @@ test("camada permanece isolada do bootstrap global, dispatcher e Functions expor
     readFile(path.join(root, "functions", "hostname-resolution.mjs"), "utf8"),
   ]);
   assert.match(tenantSource, /BARBEARIA_PADRAO_ID/);
-  assert.match(firebaseSource, /BARBEARIA_ATUAL_ID = getBarbeariaAtual\(\)/);
+  assert.doesNotMatch(firebaseSource, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(contextSource, /registerTrustedTenantHostnameResolver/);
   assert.doesNotMatch(contextSource, /parseGoEstudioTenantHostname|GOESTUDIO_PUBLIC_BASE_DOMAINS/);
   assert.doesNotMatch(indexSource, /resolveGoEstudioHostname|hostname-resolution/);

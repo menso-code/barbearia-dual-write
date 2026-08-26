@@ -150,7 +150,7 @@ test("compatibilidade fixa permanece somente nos adaptadores adiados", async () 
     read("public/js/agenda.js"),
     read("public/js/app.js"),
   ]);
-  assert.match(firebaseConfig, /BARBEARIA_ATUAL_ID/);
+  assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
   assert.match(context, /LEGACY_FIREBASE_COMPAT/);
   assert.doesNotMatch(`${agenda}\n${app}`, /BARBEARIA_ATUAL_ID|BARBEARIA_PADRAO_ID/);

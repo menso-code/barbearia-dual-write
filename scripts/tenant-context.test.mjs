@@ -139,7 +139,7 @@ test("integração frontend mantém autorização no servidor e compatibilidade 
   assert.doesNotMatch(`${browser}\n${core}`, /localStorage|sessionStorage|URLSearchParams/);
   assert.doesNotMatch(core, /tnt_80b2|\bantunes\b/i);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
-  assert.match(firebaseConfig, /BARBEARIA_ATUAL_ID = getBarbeariaAtual\(\)/);
+  assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.doesNotMatch(studio, /BARBEARIA_ATUAL_ID/);
   assert.match(studio, /initializeTenantContext\(\)/);
   assert.match(studio, /tenantContext\.status !== TENANT_CONTEXT_STATES\.READY/);

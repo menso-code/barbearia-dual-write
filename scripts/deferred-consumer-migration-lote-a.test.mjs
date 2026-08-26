@@ -57,7 +57,7 @@ test("estados não READY iniciam zero consumidores tenant-scoped", async () => {
   assert.equal(tenantContextIsReady({ status: TENANT_CONTEXT_STATES.READY, tenantId: "" }), false);
 });
 
-test("compatibilidade fixa permanece isolada nos adaptadores existentes", async () => {
+test("compatibilidade fixa permanece isolada no tenant context", async () => {
   const [firebaseConfig, tenant, context, access, controlCenter, customers] = await Promise.all([
     read("public/js/firebase-config.js"),
     read("public/js/tenant.js"),
@@ -66,7 +66,7 @@ test("compatibilidade fixa permanece isolada nos adaptadores existentes", async 
     read("public/js/admin-control-center.js"),
     read("public/js/admin-customers.js"),
   ]);
-  assert.match(firebaseConfig, /BARBEARIA_ATUAL_ID = getBarbeariaAtual\(\)/);
+  assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
   assert.match(context, /LEGACY_FIREBASE_COMPAT/);
   assert.doesNotMatch(`${access}\n${controlCenter}\n${customers}`, /BARBEARIA_ATUAL_ID|BARBEARIA_PADRAO_ID/);

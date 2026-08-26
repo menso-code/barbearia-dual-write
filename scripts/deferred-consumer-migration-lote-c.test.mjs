@@ -142,7 +142,7 @@ test("Lote C não cria cache cross-tenant nem expande compatibilidade fixa", asy
   assert.doesNotMatch(migrated, /\btenantId\s*:/);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
   assert.match(context, /LEGACY_FIREBASE_COMPAT/);
-  assert.match(firebaseConfig, /BARBEARIA_ATUAL_ID/);
+  assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
 });
 
 test("Nomes e envelopes dos comandos operacionais permanecem sem tenantId", async () => {

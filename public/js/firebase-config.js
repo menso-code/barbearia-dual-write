@@ -1,5 +1,3 @@
-import { getBarbeariaAtual, getSlugBarbeariaAtual } from "./tenant.js";
-
 // ============================================================================
 // CONFIGURAÇÃO DO FIREBASE — projeto: barber-a01e7
 // ============================================================================
@@ -17,13 +15,6 @@ const firebaseConfig = {
   appId: "1:324113336959:web:6f53ea89169c194f744d4a",
   measurementId: "G-ZRD0V83BXW",
 };
-
-// Reexportado pelo módulo comum para que todos os fluxos possam usar a mesma
-// referência quando cada coleção for migrada, sem criar fontes paralelas.
-export { getBarbeariaAtual };
-export const BARBEARIA_ATUAL_ID = getBarbeariaAtual();
-export { getSlugBarbeariaAtual };
-export const BARBEARIA_ATUAL_SLUG = getSlugBarbeariaAtual();
 
 // ============================================================================
 // Inicialização (SDK modular do Firebase v10, via CDN — sem necessidade de build)

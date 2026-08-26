@@ -223,12 +223,15 @@ Foi gerado `GO_LIVE_READINESS_ANTUNES.md` após revisão somente leitura da HML.
 ## EVOLUÇÃO MULTI-BARBEARIA — FUNDAÇÃO
 
 - A migração para múltiplas barbearias foi iniciada sem alterar dados ou fluxos
-  publicados. `public/js/tenant.js` é a fonte única do tenant no frontend e
-  mantém o ID interno `tnt_80b2fda7ad644a1dbeff050aa8e0d595` como
-  identificador fixo da Barbearia Antunes; `antunes` é somente o slug público.
-- O módulo comum `firebase-config.js` reexporta `getBarbeariaAtual()` e
-  `BARBEARIA_ATUAL_ID`, preparando os módulos existentes para a troca gradual
-  de consultas sem fontes paralelas de tenant.
+  publicados. `public/js/tenant-context.js` é a fonte compartilhada para os
+  consumidores tenant-scoped do frontend. `public/js/tenant.js` mantém o ID
+  interno `tnt_80b2fda7ad644a1dbeff050aa8e0d595` e o slug público `antunes`
+  somente na camada de compatibilidade fixa ainda isolada.
+- O módulo comum `firebase-config.js` não importa nem reexporta helpers ou
+  constantes de tenant; ele permanece restrito à inicialização do Firebase.
+  A resolução tenant-scoped ocorre por `tenant-context.js`, enquanto a
+  compatibilidade fixa ainda necessária permanece isolada fora da configuração
+  do Firebase.
 - A documentação `TENANCY_MIGRATION.md` registra a arquitetura alvo e o motivo
   de não adicionar apenas `barbearia_id` às coleções atuais: o perfil global
   `clientes/{uid}` e os IDs canônicos de agenda exigem uma migração namespaced

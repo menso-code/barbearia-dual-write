@@ -2,11 +2,17 @@ import {
   TENANT_CONTEXT_SOURCES,
   TENANT_CONTEXT_STATES,
   createTenantContextManager,
+  tenantContextIsReady,
   tenantScopedCacheKey,
 } from "./tenant-context-core.mjs";
 import { BARBEARIA_PADRAO_ID, BARBEARIA_PADRAO_SLUG } from "./tenant.js";
 
-export { TENANT_CONTEXT_SOURCES, TENANT_CONTEXT_STATES, tenantScopedCacheKey };
+export {
+  TENANT_CONTEXT_SOURCES,
+  TENANT_CONTEXT_STATES,
+  tenantContextIsReady,
+  tenantScopedCacheKey,
+};
 
 // Compatibilidade temporária concentrada em um único módulo. Estes valores só
 // são aceitos para desenvolvimento local e para os hosts Firebase legados

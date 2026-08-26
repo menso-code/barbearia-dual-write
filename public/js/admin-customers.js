@@ -4,6 +4,13 @@ import {
   statusLabel,
 } from "./admin-customers-core.mjs";
 import { formatarNumeroWhatsApp, normalizarNumeroWhatsApp } from "./whatsapp.js";
+import {
+  initializeTenantContext,
+  tenantContextIsReady,
+} from "./tenant-context.js";
+
+const tenantContext = await initializeTenantContext();
+if (tenantContextIsReady(tenantContext)) {
 
 const state = {
   source: null,
@@ -187,3 +194,4 @@ document.getElementById("clientes-filtro")?.addEventListener("change", (event) =
 
 window.addEventListener("admin:customers-data", (event) => applySource(event.detail));
 if (window.adminCustomersSourceSnapshot) applySource(window.adminCustomersSourceSnapshot);
+}

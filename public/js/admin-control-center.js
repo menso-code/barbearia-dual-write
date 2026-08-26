@@ -1,4 +1,3 @@
-import { dataLocalHoje, horariosCandidatos } from "./agenda.js";
 import {
   buildTodayOperationSummary,
   fittingIsStillValid,
@@ -6,6 +5,14 @@ import {
   lateDurationMinutes,
   LATE_APPOINTMENT_TOLERANCE_MINUTES,
 } from "./admin-today-operation-core.mjs";
+import {
+  initializeTenantContext,
+  tenantContextIsReady,
+} from "./tenant-context.js";
+
+const tenantContext = await initializeTenantContext();
+if (tenantContextIsReady(tenantContext)) {
+const { dataLocalHoje, horariosCandidatos } = await import("./agenda.js");
 
 const currentDate = document.querySelector("[data-admin-current-date]");
 const sidebar = document.getElementById("admin-sidebar");
@@ -339,3 +346,4 @@ if (professionalsLimit) {
 
 // Keep one explicit navigation state for keyboard and assistive technology.
 syncSidebarState(document.querySelector(".admin-sidebar [data-view].active")?.dataset.view || "overview");
+}

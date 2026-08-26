@@ -1,5 +1,10 @@
 import { auth, db } from "./firebase-config.js";
 import { obterUidOperacional } from "./homologation-identity.js";
+import { getCurrentUserAccess } from "./access-control.js";
+import {
+  initializeTenantContext,
+  tenantContextIsReady,
+} from "./tenant-context.js";
 import {
   onAuthStateChanged,
   signOut,
@@ -140,9 +145,14 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
   publicarEstadoAcessoAdmin("CHECKING");
-  const uidOperacional = await obterUidOperacional(user);
-  const adminSnap = await getDoc(doc(db, "admins", uidOperacional));
-  if (!adminSnap.exists()) {
+  const tenantContext = await initializeTenantContext();
+  if (!tenantContextIsReady(tenantContext)) {
+    publicarEstadoAcessoAdmin("DENIED");
+    document.getElementById("locked-screen").style.display = "flex";
+    return;
+  }
+  const access = await getCurrentUserAccess(user);
+  if (!access.isAdmin) {
     publicarEstadoAcessoAdmin("DENIED");
     document.getElementById("locked-screen").style.display = "flex";
     return;

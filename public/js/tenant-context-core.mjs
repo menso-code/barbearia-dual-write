@@ -60,6 +60,11 @@ export function tenantScopedCacheKey(tenantId, suffix) {
   return `tenant:${normalizedTenantId}:${normalizedSuffix}`;
 }
 
+export function tenantContextIsReady(context) {
+  return context?.status === TENANT_CONTEXT_STATES.READY
+    && Boolean(String(context.tenantId || "").trim());
+}
+
 export function createTenantContextManager({ resolveHostname, devFixture, legacyCompat } = {}) {
   let context = frozenContext(TENANT_CONTEXT_STATES.IDLE);
   let initializationPromise = null;

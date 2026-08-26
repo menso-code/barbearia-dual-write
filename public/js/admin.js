@@ -21,19 +21,28 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   blocosDoAtendimento,
-  cancelarAgendamento as cancelarReserva,
-  concluirAgendamento,
-  criarAgendamento,
+  createTenantScopedAgenda,
   dataLocalHoje,
   horariosCandidatos,
-  horariosDisponiveis,
-  marcarNaoComparecimento,
-  obterFechamentoGlobal,
 } from "./agenda.js";
 import { abrirWhatsAppLembrete } from "./whatsapp.js";
 import { executarComandoOperacional } from "./operational-commands.js";
 
 const LIMITE_BARBEIROS = 5;
+const V2_COLLECTIONS = Object.freeze({
+  clientes: "clientes",
+  barbeiros: "barbeiros",
+  servicos: "servicos",
+  agendamentos: "agendamentos",
+  bloqueios: "bloqueios",
+  configuracoes: "configuracoes",
+  fechamentos_globais: "fechamentos",
+  planos_assinatura: "planos_assinatura",
+  solicitacoes_assinatura: "assinaturas",
+  historico_assinaturas: "historico_assinaturas",
+});
+let adminTenantContext = null;
+let adminTenantAgenda = null;
 const operationalModalState = {
   resolve: null,
   previousFocus: null,
@@ -81,6 +90,25 @@ let fechamentosCache = [];
 let fotoBarbeiroAtual = "";
 let fotoBarbeiroPendente = false;
 
+function requireAdminTenantContext() {
+  if (!tenantContextIsReady(adminTenantContext)) throw new Error("TENANT_CONTEXT_NOT_READY");
+  return adminTenantContext;
+}
+
+function tenantCollection(name) {
+  const context = requireAdminTenantContext();
+  const mapped = V2_COLLECTIONS[name];
+  if (!mapped) throw new Error("TENANT_COLLECTION_NOT_MAPPED");
+  return collection(db, "barbearias", context.tenantId, mapped);
+}
+
+function tenantDocument(name, id) {
+  const context = requireAdminTenantContext();
+  const mapped = V2_COLLECTIONS[name];
+  if (!mapped) throw new Error("TENANT_COLLECTION_NOT_MAPPED");
+  return doc(db, "barbearias", context.tenantId, mapped, id);
+}
+
 const FOTO_BARBEIRO_MAX_BYTES = 5 * 1024 * 1024;
 const FOTO_BARBEIRO_TARGET_BYTES = 500 * 1024;
 const FOTO_BARBEIRO_MAX_SIDE = 1600;
@@ -106,7 +134,7 @@ async function carregarClientesAdministrativos({ atualizar = false } = {}) {
     return true;
   }
   try {
-    const clientes = await getDocs(collection(db, "clientes"));
+    const clientes = await getDocs(tenantCollection("clientes"));
     clientesNovoAgendamentoCache.clear();
     clientes.forEach((cliente) => {
       clientesNovoAgendamentoCache.set(cliente.id, cliente.data());
@@ -157,6 +185,8 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("locked-screen").style.display = "flex";
     return;
   }
+  adminTenantContext = tenantContext;
+  adminTenantAgenda = createTenantScopedAgenda(adminTenantContext);
   publicarEstadoAcessoAdmin("READY");
   document.getElementById("admin-shell").style.display = "block";
   await carregarBarbeiros();
@@ -223,7 +253,7 @@ const DIAS_SEMANA = [
   "Sexta-feira",
   "Sábado",
 ];
-const funcionamentoRef = doc(db, "configuracoes", "funcionamento");
+const funcionamentoRef = () => tenantDocument("configuracoes", "funcionamento");
 
 function formatarDataFechamento(data) {
   return String(data || "")
@@ -275,9 +305,9 @@ function renderizarFechamentos() {
 
 async function carregarFuncionamento() {
   const [configSnap, fechamentosSnap] = await Promise.all([
-    getDoc(funcionamentoRef),
+    getDoc(funcionamentoRef()),
     getDocs(
-      query(collection(db, "fechamentos_globais"), orderBy("data", "asc")),
+      query(tenantCollection("fechamentos_globais"), orderBy("data", "asc")),
     ),
   ]);
   const semanal = configSnap.exists()
@@ -376,7 +406,7 @@ document
     }
     try {
       const jaFechados = await Promise.all(
-        intervalo.map((data) => getDoc(doc(db, "fechamentos_globais", data))),
+        intervalo.map((data) => getDoc(tenantDocument("fechamentos_globais", data))),
       );
       if (
         jaFechados.some((snap) => snap.exists() && snap.data().ativo !== false)
@@ -388,7 +418,7 @@ document
       }
       const existentes = await getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
@@ -451,7 +481,7 @@ let totalBarbeiros = 0;
 async function carregarBarbeiros() {
   const grid = document.getElementById("admin-barbeiros-grid");
   const snap = await getDocs(
-    query(collection(db, "barbeiros"), orderBy("nome")),
+    query(tenantCollection("barbeiros"), orderBy("nome")),
   );
   barbeirosCache = snap.docs.map((docSnap) => ({
     id: docSnap.id,
@@ -639,7 +669,7 @@ async function atualizarStatusConta(uid = "") {
   }
   status.textContent = "Validando conta…";
   try {
-    const perfil = await getDoc(doc(db, "clientes", uid));
+    const perfil = await getDoc(tenantDocument("clientes", uid));
     if (!perfil.exists()) {
       status.textContent = "○ Conta não localizada";
       detalhes.textContent =
@@ -961,7 +991,7 @@ document
     btn.textContent = "Importando…";
 
     // evita duplicar serviços que já existem (compara pelo nome)
-    const existentesSnap = await getDocs(collection(db, "servicos"));
+    const existentesSnap = await getDocs(tenantCollection("servicos"));
     const nomesExistentes = new Set();
     existentesSnap.forEach((d) => nomesExistentes.add(d.data().nome));
 
@@ -986,7 +1016,7 @@ document
 async function carregarServicos() {
   const body = document.getElementById("admin-servicos-body");
   const snap = await getDocs(
-    query(collection(db, "servicos"), orderBy("nome")),
+    query(tenantCollection("servicos"), orderBy("nome")),
   );
   servicosCache = snap.docs.map((docSnap) => ({
     id: docSnap.id,
@@ -1162,7 +1192,7 @@ function precoParaCentavos(valor) {
 async function garantirPlanosAssinaturaIniciais() {
   await Promise.all(
     PLANOS_ASSINATURA_INICIAIS.map(async ({ id, ...plano }) => {
-      const referencia = doc(db, "planos_assinatura", id);
+      const referencia = tenantDocument("planos_assinatura", id);
       const existente = await getDoc(referencia);
       if (!existente.exists()) {
         await executarComandoOperacional("admin.plano.inicial", {
@@ -1179,7 +1209,7 @@ async function carregarAssinaturas() {
   try {
     await garantirPlanosAssinaturaIniciais();
     const snap = await getDocs(
-      query(collection(db, "planos_assinatura"), orderBy("nome")),
+      query(tenantCollection("planos_assinatura"), orderBy("nome")),
     );
     planosAssinaturaCache = snap.docs.map((item) => ({
       id: item.id,
@@ -1412,7 +1442,7 @@ async function enriquecerSolicitacoesComCliente(solicitacoes) {
   await Promise.all(
     idsPendentes.map(async (clienteId) => {
       try {
-        const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+        const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
         clientesAssinaturasCache.set(
           clienteId,
           clienteSnap.exists() ? clienteSnap.data() : {},
@@ -1509,7 +1539,7 @@ async function prepararReservasLegadas(solicitacoes) {
   );
   if (!assinaturasPendentes.length) return solicitacoes;
 
-  const agendamentosSnap = await getDocs(collection(db, "agendamentos"));
+  const agendamentosSnap = await getDocs(tenantCollection("agendamentos"));
   const reservasPorAssinatura = new Map();
   agendamentosSnap.docs.forEach((item) => {
     const agendamento = item.data();
@@ -1610,7 +1640,7 @@ async function carregarSolicitacoesAssinatura({ atualizar = false } = {}) {
 
   grid.innerHTML = '<p class="limit-note">Carregando solicitações…</p>';
   try {
-    const snap = await getDocs(collection(db, "solicitacoes_assinatura"));
+    const snap = await getDocs(tenantCollection("solicitacoes_assinatura"));
     let todas = snap.docs
       .map((item) => ({ id: item.id, ...item.data() }))
       .sort(
@@ -1637,7 +1667,7 @@ async function carregarHistoricoAssinaturas() {
   try {
     const snap = await getDocs(
       query(
-        collection(db, "historico_assinaturas"),
+        tenantCollection("historico_assinaturas"),
         orderBy("utilizado_em", "desc"),
       ),
     );
@@ -1656,7 +1686,7 @@ async function carregarHistoricoAssinaturas() {
 
         if (!clientesAssinaturasCache.has(clienteId)) {
           try {
-            const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+            const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
             clientesAssinaturasCache.set(
               clienteId,
               clienteSnap.exists() ? clienteSnap.data() : {},
@@ -2023,7 +2053,7 @@ async function carregarAgenda() {
   body.innerHTML = `<tr><td colspan="7" style="color:var(--cinza)">Carregando agendamentos…</td></tr>`;
   cards.innerHTML = "";
   const periodo = periodoAgenda();
-  const restricoes = [collection(db, "agendamentos")];
+  const restricoes = [tenantCollection("agendamentos")];
   if (periodo)
     restricoes.push(
       where("data", ">=", periodo.inicio),
@@ -2069,7 +2099,7 @@ async function carregarAgenda() {
       let whatsapp = normalizarWhatsApp(a.cliente_whatsapp);
       if (a.cliente_id) {
         try {
-          const clienteSnap = await getDoc(doc(db, "clientes", a.cliente_id));
+          const clienteSnap = await getDoc(tenantDocument("clientes", a.cliente_id));
           if (clienteSnap.exists()) {
             const cliente = clienteSnap.data();
             nomeCliente = cliente.nome || cliente.displayName || nomeCliente;
@@ -2359,7 +2389,7 @@ async function concluirComConfirmacao(agendamento, sourceButton) {
   const textoOriginal = sourceButton?.textContent || "";
   if (sourceButton) { sourceButton.disabled = true; sourceButton.textContent = "Concluindo…"; }
   try {
-    await concluirAgendamento(db, agendamento, { validarDuplicidade: true });
+    await adminTenantAgenda.concluirAgendamento(db, agendamento, { validarDuplicidade: true });
     await carregarAgenda();
     await carregarRelatorio();
     anunciarAtualizacaoAgenda("Atendimento concluído.");
@@ -2392,7 +2422,7 @@ async function cancelarAgendamentoAdmin(agendamento, btn) {
   if (!confirmado) return;
   btn.disabled = true;
   try {
-    await cancelarReserva(db, agendamento);
+    await adminTenantAgenda.cancelarAgendamento(db, agendamento);
     abrirWhatsAppCancelamento(agendamento);
     await carregarAgenda();
     await carregarRelatorio();
@@ -2467,7 +2497,7 @@ async function marcarNaoCompareceu(agendamento, btn) {
     btn.textContent = "Atualizando…";
   }
   try {
-    await marcarNaoComparecimento(db, agendamento, {
+    await adminTenantAgenda.marcarNaoComparecimento(db, agendamento, {
       validarDuplicidade: true,
     });
     await carregarAgenda();
@@ -2866,31 +2896,31 @@ async function carregarRelatorio() {
     ] = await Promise.all([
       getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
       ),
       getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", periodoAnterior.inicio),
           where("data", "<=", periodoAnterior.fim),
         ),
       ),
-      getDocs(collection(db, "servicos")),
-      getDocs(collection(db, "barbeiros")),
-      getDoc(funcionamentoRef),
+      getDocs(tenantCollection("servicos")),
+      getDocs(tenantCollection("barbeiros")),
+      getDoc(funcionamentoRef()),
       getDocs(
         query(
-          collection(db, "fechamentos_globais"),
+          tenantCollection("fechamentos_globais"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
       ),
       getDocs(
         query(
-          collection(db, "bloqueios"),
+          tenantCollection("bloqueios"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
@@ -3156,7 +3186,7 @@ document.getElementById("novo-cliente")?.addEventListener("change", async (event
 
   let dados = clientesNovoAgendamentoCache.get(clienteId) || {};
   try {
-    const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+    const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
     if (clienteSnap.exists()) {
       dados = clienteSnap.data();
       clientesNovoAgendamentoCache.set(clienteId, dados);
@@ -3190,7 +3220,7 @@ async function atualizarHorariosNovoAgendamento() {
     return;
   }
   try {
-    const fechamento = await obterFechamentoGlobal(db, data);
+    const fechamento = await adminTenantAgenda.obterFechamentoGlobal(db, data);
     if (fechamento.fechado) {
       selectHorario.innerHTML = `<option value="">Barbearia fechada neste dia</option>`;
       mensagemNovoAgendamento(
@@ -3199,7 +3229,7 @@ async function atualizarHorariosNovoAgendamento() {
       return;
     }
     msgNovoAgendamento.className = "msg";
-    const horarios = await horariosDisponiveis(db, {
+    const horarios = await adminTenantAgenda.horariosDisponiveis(db, {
       barbeiro,
       barbeiroId: barbeiro.id,
       data,
@@ -3250,7 +3280,7 @@ formNovoAgendamento?.addEventListener("submit", async (event) => {
   btn.disabled = true;
   btn.textContent = "Criando…";
   try {
-    await criarAgendamento(db, {
+    await adminTenantAgenda.criarAgendamento(db, {
       cliente_id: cliente.value || "",
       cliente_nome: nome,
       cliente_whatsapp: whatsapp,

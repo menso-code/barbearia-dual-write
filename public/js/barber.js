@@ -1,17 +1,23 @@
 import { auth, db } from "./firebase-config.js";
 import { obterUidOperacional } from "./homologation-identity.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { blocosDoAtendimento, cancelarAgendamento, concluirAgendamento, criarAgendamento, criarBloqueio, dataLocalHoje, horariosCandidatos, horariosDisponiveis, marcarNaoComparecimento, obterFechamentoGlobal, paraHorario, paraMinutos, reagendarAgendamento, removerBloqueio } from "./agenda.js";
+import { collection, getDocs, onSnapshot, orderBy, query, where } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { blocosDoAtendimento, createTenantScopedAgenda, dataLocalHoje, horariosCandidatos, paraHorario, paraMinutos } from "./agenda.js";
 import { executarComandoOperacional } from "./operational-commands.js";
+import { initializeTenantContext, tenantContextIsReady } from "./tenant-context.js";
 import { abrirWhatsAppLembrete, buildReminderMessage, formatarNumeroWhatsApp, normalizarNumeroWhatsApp } from "./whatsapp.js";
 
+let tenantContext = null;
+let tenantAgenda = null;
 let barbeiroAtual = null;
 let servicos = [];
 let agendamentos = [];
 let bloqueios = [];
 let cancelarAgendaListener = null;
 let cancelarBloqueioListener = null;
+let agendaListenerGeneration = 0;
+let barberAuthGeneration = 0;
+let barberInterfaceMounted = false;
 let remarcacaoAtual = null;
 let horarioPreferido = "";
 let lembreteAtual = null;
@@ -28,6 +34,23 @@ const dataBr = (data) => String(data || "").split("-").reverse().join("/");
 const escapar = (valor) => String(valor ?? "").replace(/[&<>"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[char]));
 const statusRotulo = (value) => ({ agendado:"Agendado", cliente_chegou:"Cliente chegou", em_atendimento:"Em atendimento", concluido:"Concluído", cancelado:"Cancelado", nao_compareceu:"Não compareceu" }[value] || "Agendado");
 const statusClasse = (value) => value === "concluido" ? "status-concluido" : value === "cancelado" ? "status-cancelado" : value === "nao_compareceu" ? "status-falta" : value === "cliente_chegou" ? "status-chegou" : value === "em_atendimento" ? "status-atendimento" : "status-agendado";
+
+function tenantCollection(name) {
+  if (!tenantContextIsReady(tenantContext)) throw new Error("TENANT_CONTEXT_NOT_READY");
+  return collection(db, "barbearias", tenantContext.tenantId, name);
+}
+
+function pararAgendaListeners() {
+  agendaListenerGeneration += 1;
+  cancelarAgendaListener?.();
+  cancelarBloqueioListener?.();
+  cancelarAgendaListener = null;
+  cancelarBloqueioListener = null;
+}
+
+function currentBarberBootstrap(user, generation) {
+  return generation === barberAuthGeneration && auth.currentUser?.uid === user.uid;
+}
 
 function bloquear(texto) {
   if (texto) $("#barber-locked-message").textContent = texto;
@@ -97,27 +120,28 @@ function fecharModal(seletor) { $(seletor).classList.remove("show"); }
 function mostrarMensagem(seletor, texto, tipo = "err") { const el = $(seletor); el.textContent = texto; el.className = `msg show ${tipo}`; }
 
 async function carregarServicos() {
-  const snap = await getDocs(collection(db, "servicos"));
+  const snap = await getDocs(tenantCollection("servicos"));
   servicos = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
 async function assinarAgenda() {
-  cancelarAgendaListener?.();
-  cancelarBloqueioListener?.();
+  pararAgendaListeners();
+  const generation = agendaListenerGeneration;
   const datas = datasDoPeriodo();
   try {
-    const estados = await Promise.all(datas.map(async (data) => [data, await obterFechamentoGlobal(db, data)]));
+    const estados = await Promise.all(datas.map(async (data) => [data, await tenantAgenda.obterFechamentoGlobal(db, data)]));
     fechamentosGlobais = new Map(estados);
   } catch (erro) {
     console.error("Falha ao consultar funcionamento da barbearia.", erro);
     fechamentosGlobais = new Map();
   }
+  if (generation !== agendaListenerGeneration) return;
   const inicio = datas[0];
   const fim = datas[datas.length - 1];
-  const agendaQuery = query(collection(db, "agendamentos"), where("barbeiro_id", "==", barbeiroAtual.id), where("data", ">=", inicio), where("data", "<=", fim), orderBy("data"), orderBy("horario"));
-  const bloqueioQuery = query(collection(db, "bloqueios"), where("barbeiro_id", "==", barbeiroAtual.id), where("data", ">=", inicio), where("data", "<=", fim), orderBy("data"), orderBy("inicio"));
-  cancelarAgendaListener = onSnapshot(agendaQuery, (snap) => { agendamentos = snap.docs.map((item) => ({ id:item.id, ...item.data() })); renderizarAgenda(); }, (erro) => mostrarErroAgenda(erro));
-  cancelarBloqueioListener = onSnapshot(bloqueioQuery, (snap) => { bloqueios = snap.docs.map((item) => ({ id:item.id, ...item.data() })); renderizarAgenda(); }, (erro) => mostrarErroAgenda(erro));
+  const agendaQuery = query(tenantCollection("agendamentos"), where("barbeiro_id", "==", barbeiroAtual.id), where("data", ">=", inicio), where("data", "<=", fim), orderBy("data"), orderBy("horario"));
+  const bloqueioQuery = query(tenantCollection("bloqueios"), where("barbeiro_id", "==", barbeiroAtual.id), where("data", ">=", inicio), where("data", "<=", fim), orderBy("data"), orderBy("inicio"));
+  cancelarAgendaListener = onSnapshot(agendaQuery, (snap) => { if (generation !== agendaListenerGeneration) return; agendamentos = snap.docs.map((item) => ({ id:item.id, ...item.data() })); renderizarAgenda(); }, (erro) => { if (generation === agendaListenerGeneration) mostrarErroAgenda(erro); });
+  cancelarBloqueioListener = onSnapshot(bloqueioQuery, (snap) => { if (generation !== agendaListenerGeneration) return; bloqueios = snap.docs.map((item) => ({ id:item.id, ...item.data() })); renderizarAgenda(); }, (erro) => { if (generation === agendaListenerGeneration) mostrarErroAgenda(erro); });
 }
 
 function mostrarErroAgenda(erro) {
@@ -234,13 +258,13 @@ async function atualizarHorariosAgendamento() {
   horarioSelect.innerHTML = '<option value="">Carregando horários…</option>';
   if (!servico || !data) { horarioSelect.innerHTML = '<option value="">Escolha serviço e data</option>'; return; }
   try {
-    const fechamento = await obterFechamentoGlobal(db, data);
+    const fechamento = await tenantAgenda.obterFechamentoGlobal(db, data);
     if (fechamento.fechado) {
       horarioSelect.innerHTML = '<option value="">Barbearia fechada neste dia</option>';
       mostrarMensagem("#barber-booking-msg", `Barbearia fechada neste dia.${fechamento.motivo ? ` ${fechamento.motivo}.` : ""}`);
       return;
     }
-    const horarios = await horariosDisponiveis(db, { barbeiro: barbeiroAtual, barbeiroId: barbeiroAtual.id, data, duracao: servico.duracao || 30 });
+    const horarios = await tenantAgenda.horariosDisponiveis(db, { barbeiro: barbeiroAtual, barbeiroId: barbeiroAtual.id, data, duracao: servico.duracao || 30 });
     horarioSelect.innerHTML = `<option value="">${horarios.length ? "Selecione" : "Nenhum horário disponível"}</option>`;
     horarios.forEach((hora) => horarioSelect.add(new Option(hora, hora)));
     if (horarioPreferido && horarios.includes(horarioPreferido)) horarioSelect.value = horarioPreferido;
@@ -257,8 +281,8 @@ async function confirmarAgendamento(evento) {
   botao.disabled = true;
   try {
     const comando = { ...dados, cliente_id:"", cliente_tipo:"presencial", barbeiro_id:barbeiroAtual.id, barbeiro_nome:barbeiroAtual.nome, barbeiro:barbeiroAtual, servico_id:servico.id, servico_nome:servico.nome, servico_preco:servico.preco || "", duracao:servico.duracao || 30, criado_por:auth.currentUser.uid, criado_por_tipo:"barbeiro", origem:"painel_barbeiro" };
-    if (remarcacaoAtual) await reagendarAgendamento(db, remarcacaoAtual, comando);
-    else await criarAgendamento(db, comando);
+    if (remarcacaoAtual) await tenantAgenda.reagendarAgendamento(db, remarcacaoAtual, comando);
+    else await tenantAgenda.criarAgendamento(db, comando);
     mostrarMensagem("#barber-booking-msg", remarcacaoAtual ? "Atendimento reagendado com sucesso." : "Agendamento criado com sucesso.", "ok");
     setTimeout(() => fecharModal("#barber-booking-modal"), 550);
   } catch (erro) {
@@ -291,7 +315,7 @@ async function confirmarBloqueio(evento) {
   const botao = evento.target.querySelector("button[type=submit]");
   botao.disabled = true;
   try {
-    await criarBloqueio(db, dados);
+    await tenantAgenda.criarBloqueio(db, dados);
     mostrarMensagem("#barber-block-msg", "Horário bloqueado com sucesso.", "ok");
     setTimeout(() => fecharModal("#barber-block-modal"), 500);
   } catch (erro) {
@@ -315,7 +339,7 @@ function abrirConclusao(item) {
 async function concluirAtendimento() {
   if (!atendimentoParaConcluir) return;
   const botao = $("#barber-confirm-complete"); botao.disabled = true;
-  try { await concluirAgendamento(db, atendimentoParaConcluir); fecharModal("#barber-complete-modal"); }
+  try { await tenantAgenda.concluirAgendamento(db, atendimentoParaConcluir); fecharModal("#barber-complete-modal"); }
   catch (erro) { alert(erro.message === "CREDITO_INDISPONIVEL" ? "Não há crédito disponível nesta assinatura." : erro.message === "ASSINATURA_SEM_VINCULO" ? "Este agendamento de assinatura não possui vínculo de crédito válido." : "Não foi possível concluir o atendimento."); console.error(erro); }
   finally { botao.disabled = false; atendimentoParaConcluir = null; }
 }
@@ -337,34 +361,65 @@ async function tratarAcaoTimeline(evento) {
   const item = mapaAgendamentos.get(botao.dataset.id);
   try {
     if (acao === "agendar") return abrirAgendamento({ data:botao.dataset.date, horario:botao.dataset.time });
-    if (acao === "desbloquear") { const bloqueio = mapaBloqueios.get(botao.dataset.blockId); if (bloqueio && confirm("Desbloquear este horário?")) await removerBloqueio(db, bloqueio); return; }
+    if (acao === "desbloquear") { const bloqueio = mapaBloqueios.get(botao.dataset.blockId); if (bloqueio && confirm("Desbloquear este horário?")) await tenantAgenda.removerBloqueio(db, bloqueio); return; }
     if (!item) return;
     if (acao === "lembrete") return abrirPreviewLembrete(item);
     if (acao === "chegada") await atualizarStatus(item, "cliente_chegou");
     if (acao === "iniciar") await atualizarStatus(item, "em_atendimento");
     if (acao === "concluir") abrirConclusao(item);
     if (acao === "reagendar") abrirAgendamento({ data:item.data, remarcacao:item });
-    if (acao === "falta" && confirm(`Marcar como não compareceu? Este atendimento não contará para fidelidade.${item.origem === "assinatura" ? " Um crédito da assinatura será consumido." : ""}`)) await marcarNaoComparecimento(db, item);
-    if (acao === "cancelar" && confirm("Cancelar este agendamento?")) await cancelarAgendamento(db, item);
+    if (acao === "falta" && confirm(`Marcar como não compareceu? Este atendimento não contará para fidelidade.${item.origem === "assinatura" ? " Um crédito da assinatura será consumido." : ""}`)) await tenantAgenda.marcarNaoComparecimento(db, item);
+    if (acao === "cancelar" && confirm("Cancelar este agendamento?")) await tenantAgenda.cancelarAgendamento(db, item);
   } catch (erro) { console.error("Falha na ação da agenda.", erro); alert(erro.code === "permission-denied" ? "Você não possui permissão para esta ação." : "Não foi possível concluir esta ação."); }
 }
 
 $("[data-logout]")?.addEventListener("click", async () => { await signOut(auth); location.replace("index.html"); });
 
-onAuthStateChanged(auth, async (user) => {
-  if (!user) return location.replace("index.html");
-  try {
-    const uidOperacional = await obterUidOperacional(user);
-    let snap = await getDocs(query(collection(db, "barbeiros"), where("uid_usuario", "==", uidOperacional)));
-    if (snap.empty) {
-      return bloquear("Esta conta ainda não está vinculada a um barbeiro. Peça a um administrador para vincular o UID da conta no painel administrativo.");
+async function iniciarPainelBarbeiro() {
+  const resolvedTenantContext = await initializeTenantContext();
+  if (!tenantContextIsReady(resolvedTenantContext)) {
+    bloquear("Este estabelecimento não está disponível.");
+    return;
+  }
+  tenantContext = resolvedTenantContext;
+  tenantAgenda = createTenantScopedAgenda(tenantContext);
+
+  onAuthStateChanged(auth, async (user) => {
+    const generation = ++barberAuthGeneration;
+    pararAgendaListeners();
+    if (!user) {
+      location.replace("index.html");
+      return;
     }
-    if (snap.empty) return bloquear();
-    barbeiroAtual = { id:snap.docs[0].id, ...snap.docs[0].data() };
-    $("#barber-title").textContent = `Olá, ${barbeiroAtual.nome || "barbeiro"}`;
-    $("#barber-shell").style.display = "block";
-    montarInterface();
-    await carregarServicos();
-    assinarAgenda();
-  } catch (erro) { console.error("Falha ao validar painel do barbeiro.", erro); bloquear(erro.code === "permission-denied" ? "Não foi possível validar a autorização desta conta." : undefined); }
+    try {
+      const uidOperacional = await obterUidOperacional(user);
+      if (!currentBarberBootstrap(user, generation)) return;
+      const snap = await getDocs(query(tenantCollection("barbeiros"), where("uid_usuario", "==", uidOperacional)));
+      if (!currentBarberBootstrap(user, generation)) return;
+      if (snap.empty) {
+        return bloquear("Esta conta ainda não está vinculada a um barbeiro. Peça a um administrador para vincular o UID da conta no painel administrativo.");
+      }
+      barbeiroAtual = { id:snap.docs[0].id, ...snap.docs[0].data() };
+      $("#barber-title").textContent = `Olá, ${barbeiroAtual.nome || "barbeiro"}`;
+      $("#barber-shell").style.display = "block";
+      if (!barberInterfaceMounted) {
+        montarInterface();
+        barberInterfaceMounted = true;
+      }
+      await carregarServicos();
+      if (!currentBarberBootstrap(user, generation)) return;
+      assinarAgenda();
+    } catch (erro) {
+      pararAgendaListeners();
+      if (!currentBarberBootstrap(user, generation)) return;
+      console.error("Falha ao validar painel do barbeiro.", erro);
+      bloquear(erro.code === "permission-denied" ? "Não foi possível validar a autorização desta conta." : undefined);
+    }
+  });
+}
+
+iniciarPainelBarbeiro().catch((erro) => {
+  pararAgendaListeners();
+  console.error("Falha ao iniciar contexto do barbeiro.", erro);
+  bloquear("Este estabelecimento não está disponível.");
 });

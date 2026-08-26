@@ -13,6 +13,7 @@ const COMMANDS = [
   "admin.barbeiro.ativar", "admin.barbeiro.remover", "admin.servico.salvar", "admin.servico.remover",
   "admin.plano.salvar", "admin.plano.inicial", "admin.plano.ativar", "admin.assinatura.aprovar",
   "admin.assinatura.recusar", "admin.assinatura.renovar", "admin.assinatura.cancelar", "admin.assinatura.expirar",
+  "admin.estudio.identidade.salvar",
 ];
 
 function clone(value) {
@@ -132,7 +133,7 @@ function rebook(domain, { tenant, originalId, newId, barberId, requestId, failAt
   }, failAt);
 }
 
-test("dispatcher atual registra exatamente 30 comandos e nenhum contrato crítico ficou fora", () => {
+test("dispatcher atual registra exatamente 31 comandos e nenhum contrato crítico ficou fora", () => {
   const registered = [...runtime.matchAll(/case "([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(registered, COMMANDS);
 });

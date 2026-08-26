@@ -14,6 +14,11 @@ import { defineString } from "firebase-functions/params";
 import { emailAutorizado, normalizarEmail, unirPapeisPrimeiroVinculo } from "./first-link-policy.mjs";
 
 const TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
+const STUDIO_IDENTITY_ID = "identidade";
+export const STUDIO_IDENTITY_FIELDS = Object.freeze([
+  "nome", "nomeCurto", "logo", "favicon", "primaryColor", "accentColor",
+  "telefone", "whatsapp", "instagram", "endereco", "institucional",
+]);
 const ALLOWED_PROJECTS = new Set(["barber-a01e7", "teste-483f6"]);
 const COLLECTION_MAP = new Map([
   ["clientes", "clientes"],
@@ -121,6 +126,69 @@ function cleanPhone(value) {
   return phone;
 }
 
+function cleanIdentityReference(value) {
+  const text = cleanText(value, 2048);
+  if (!text) return "";
+  if (/^(?:javascript|data|vbscript):/i.test(text) || /[\\\s]/.test(text) || text.startsWith("//")) {
+    error("invalid-argument", "Referência de identidade inválida.");
+  }
+  if (text.startsWith("/") || /^[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~%-]+)*(?:[?#][^\s]*)?$/.test(text)) return text;
+  try {
+    const url = new URL(text);
+    if (url.protocol !== "https:") error("invalid-argument", "Referência de identidade inválida.");
+    return text;
+  } catch {
+    error("invalid-argument", "Referência de identidade inválida.");
+  }
+}
+
+function cleanIdentityColor(value) {
+  const color = cleanText(value, 7);
+  if (!color) return "";
+  if (!/^#[0-9a-f]{6}$/i.test(color)) error("invalid-argument", "Cor de identidade inválida.");
+  return color.toUpperCase();
+}
+
+function cleanIdentityInstagram(value) {
+  const instagram = cleanText(value, 2048);
+  if (!instagram) return "";
+  if (/^@?[a-z0-9._]{1,30}$/i.test(instagram)) return instagram;
+  try {
+    const url = new URL(instagram);
+    if (url.protocol !== "https:" || !["instagram.com", "www.instagram.com"].includes(url.hostname.toLowerCase())) {
+      error("invalid-argument", "Instagram inválido.");
+    }
+    return instagram;
+  } catch {
+    error("invalid-argument", "Instagram inválido.");
+  }
+}
+
+export function normalizeStudioIdentityData(input = {}) {
+  const incoming = requireObject(input);
+  onlyFields(incoming, new Set(STUDIO_IDENTITY_FIELDS));
+  const normalized = { nome: cleanText(incoming.nome, 120) };
+  if (!normalized.nome) error("invalid-argument", "Nome do estabelecimento obrigatório.");
+  if (Object.hasOwn(incoming, "nomeCurto")) normalized.nomeCurto = cleanText(incoming.nomeCurto, 48);
+  if (Object.hasOwn(incoming, "logo")) normalized.logo = cleanIdentityReference(incoming.logo);
+  if (Object.hasOwn(incoming, "favicon")) normalized.favicon = cleanIdentityReference(incoming.favicon);
+  if (Object.hasOwn(incoming, "primaryColor")) normalized.primaryColor = cleanIdentityColor(incoming.primaryColor);
+  if (Object.hasOwn(incoming, "accentColor")) normalized.accentColor = cleanIdentityColor(incoming.accentColor);
+  if (Object.hasOwn(incoming, "telefone")) normalized.telefone = cleanPhone(incoming.telefone);
+  if (Object.hasOwn(incoming, "whatsapp")) normalized.whatsapp = cleanPhone(incoming.whatsapp);
+  if (Object.hasOwn(incoming, "instagram")) normalized.instagram = cleanIdentityInstagram(incoming.instagram);
+  if (Object.hasOwn(incoming, "endereco")) normalized.endereco = cleanText(incoming.endereco, 240);
+  if (Object.hasOwn(incoming, "institucional")) normalized.institucional = cleanText(incoming.institucional, 2000);
+  return normalized;
+}
+
+export function isTenantAdminMemberData(member, memberTenantId, resolvedTenantId) {
+  return memberTenantId === resolvedTenantId
+    && member?.ativo === true
+    && Array.isArray(member?.papeis)
+    && member.papeis.includes("ADMIN");
+}
+
 function requestIdFrom(data) {
   const requestId = String(data.requestId || "");
   if (!/^[a-zA-Z0-9_-]{16,120}$/.test(requestId)) {
@@ -133,6 +201,10 @@ function v2Ref(collection, id) {
   const mapped = COLLECTION_MAP.get(collection);
   if (!mapped) error("internal", "Coleção sem espelho V2.");
   return db.doc(`barbearias/${TENANT_ID}/${mapped}/${id}`);
+}
+
+function tenantConfigRef(tenantId, id) {
+  return db.doc(`barbearias/${tenantId}/configuracoes/${id}`);
 }
 
 function legacyRef(collection, id) {
@@ -458,6 +530,15 @@ async function requestSubscription({ uid, planId, requestId }) {
 
 async function isAdmin(tx, uid) {
   return (await tx.get(legacyRef("admins", uid))).exists;
+}
+
+async function requireTenantAdmin(tx, uid, tenantId) {
+  if (!await isAdmin(tx, uid)) error("permission-denied", "Acesso administrativo necessário.");
+  const member = await tx.get(db.doc(`barbearias/${tenantId}/membros/${uid}`));
+  const memberData = member.exists ? member.data() : null;
+  if (!member.exists || !isTenantAdminMemberData(memberData, tenantId, tenantId)) {
+    error("permission-denied", "Acesso administrativo necessário.");
+  }
 }
 
 async function barberOwnedBy(tx, uid, barberId) {
@@ -828,6 +909,18 @@ async function adminCommand({ uid, action, data, requestId }) {
   return transactionalCommand({ operation: `admin.${action}`, actorUid: uid, requestId, execute: async (tx) => {
     await requireAdmin(tx, uid);
 
+    if (action === "estudio.identidade.salvar") {
+      const identity = normalizeStudioIdentityData(incoming);
+      const resolvedTenantId = TENANT_ID;
+      await requireTenantAdmin(tx, uid, resolvedTenantId);
+      tx.set(tenantConfigRef(resolvedTenantId, STUDIO_IDENTITY_ID), {
+        ...identity,
+        updatedAt: nowTimestampField(),
+        updatedBy: uid,
+      }, { merge: true });
+      return { tenantId: resolvedTenantId, configId: STUDIO_IDENTITY_ID };
+    }
+
     if (action === "funcionamento.salvar") {
       onlyFields(incoming, new Set(["intervalo_minutos", "periodos_semana", "dias_fechados_semana"]));
       const weekly = requireObject(incoming.dias_fechados_semana);
@@ -1111,6 +1204,7 @@ async function dispatch(request) {
     case "admin.assinatura.renovar":
     case "admin.assinatura.cancelar":
     case "admin.assinatura.expirar":
+    case "admin.estudio.identidade.salvar":
       return adminCommand({ uid, action: command.replace("admin.", ""), data: payload.data, requestId });
     default:
       error("invalid-argument", "Comando operacional não suportado.");

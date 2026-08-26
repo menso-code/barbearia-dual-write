@@ -37,15 +37,33 @@ test("App usa somente referências V2 derivadas do TenantContext", async () => {
   assert.doesNotMatch(source, /collection\(db, "(?:barbeiros|servicos|planos_assinatura|solicitacoes_assinatura|agendamentos)"\)/);
 });
 
-test("Agenda oferece adaptador tenant-scoped sem alterar consumidores legados", async () => {
+test("Agenda exige adaptador tenant-scoped e não mantém leitura root", async () => {
   const source = await read("public/js/agenda.js");
   assert.match(source, /export function createTenantScopedAgenda\(tenantContext\)/);
   assert.match(source, /if \(!tenantContextIsReady\(tenantContext\)\) throw new Error\("TENANT_CONTEXT_NOT_READY"\)/);
+  assert.match(source, /export async function obterFechamentoGlobal\(_db, data, \{ tenantContext \} = \{\}\) \{\s*const context = requireTenantScope\(tenantContext\)/);
+  assert.match(source, /export async function horariosDisponiveis\([^\n]+\{ tenantContext \} = \{\}\) \{\s*const context = requireTenantScope\(tenantContext\)/);
   assert.match(source, /doc\(db, "barbearias", context\.tenantId, collectionName, id\)/);
   assert.match(source, /V2_COLLECTIONS\.ocupacoes/);
   assert.match(source, /executarComandoOperacional\("agenda\.disponibilidade\.obter"/);
-  assert.doesNotMatch(source, /V2_COLLECTIONS\.fechamentos/);
+  assert.doesNotMatch(source, /doc\(db, "(?:configuracoes|fechamentos_globais|ocupacoes)"/);
+  assert.doesNotMatch(source, /CONFIG_FUNCIONAMENTO|fechamentoSemanal|if \(tenantContext\)/);
   assert.doesNotMatch(source, /BARBEARIA_ATUAL|BARBEARIA_PADRAO|tnt_80b2|\bantunes\b/i);
+});
+
+test("callers runtime da Agenda usam somente o adaptador tenant-scoped", async () => {
+  const [app, admin, barber, controlCenter] = await Promise.all([
+    read("public/js/app.js"),
+    read("public/js/admin.js"),
+    read("public/js/barber.js"),
+    read("public/js/admin-control-center.js"),
+  ]);
+  const runtime = `${app}\n${admin}\n${barber}\n${controlCenter}`;
+  assert.match(app, /createTenantScopedAgenda\(tenantContext\)/);
+  assert.match(admin, /createTenantScopedAgenda\(adminTenantContext\)/);
+  assert.match(barber, /createTenantScopedAgenda\(tenantContext\)/);
+  assert.match(controlCenter, /const \{ dataLocalHoje, horariosCandidatos \} = await import\("\.\/agenda\.js"\)/);
+  assert.doesNotMatch(runtime, /import\s*\{[^}]*\b(?:obterFechamentoGlobal|horariosDisponiveis)\b[^}]*\}\s*from\s*"\.\/agenda\.js"/s);
 });
 
 test("AGENDA_NO_DIRECT_CLOSURE_GETDOC e backend derived read", async () => {

@@ -4,7 +4,6 @@ import { tenantContextIsReady } from "./tenant-context.js";
 
 export const INTERVALO_MINUTOS = 30;
 export const LIMITE_ANTECEDENCIA_CLIENTE_DIAS = 10;
-const CONFIG_FUNCIONAMENTO = "funcionamento";
 const V2_COLLECTIONS = Object.freeze({
   ocupacoes: "ocupacoes",
 });
@@ -56,39 +55,26 @@ export function dataDentroDaJanelaDoCliente(data, hoje = dataLocalHoje()) {
   const { min, max } = limitesDataAgendamentoCliente(hoje);
   return data >= min && data <= max;
 }
-function fechamentoSemanal(configuracao, data) {
-  const dia = new Date(`${data}T12:00:00`).getDay();
-  const semanal = configuracao?.dias_fechados_semana || {};
-  return semanal[dia] === true || (semanal[dia] === undefined && dia === 0);
-}
-export async function obterFechamentoGlobal(db, data, { tenantContext } = {}) {
+export async function obterFechamentoGlobal(_db, data, { tenantContext } = {}) {
+  const context = requireTenantScope(tenantContext);
   if (!data) return { fechado: false, motivo: "" };
-  if (tenantContext) {
-    const context = requireTenantScope(tenantContext);
-    const availability = await executarComandoOperacional("agenda.disponibilidade.obter", {
-      data: { data, slug: context.slug },
-    });
-    if (
-      availability?.data !== data
-      || typeof availability?.closed !== "boolean"
-      || !Array.isArray(availability?.effectiveOpenPeriods)
-      || !Object.hasOwn(AVAILABILITY_MESSAGES, availability?.publicMessageCode)
-    ) {
-      throw new Error("AVAILABILITY_RESPONSE_INVALID");
-    }
-    return {
-      fechado: availability.closed,
-      motivo: AVAILABILITY_MESSAGES[availability.publicMessageCode],
-      periodosEfetivos: availability.effectiveOpenPeriods,
-      codigoPublico: availability.publicMessageCode,
-    };
+  const availability = await executarComandoOperacional("agenda.disponibilidade.obter", {
+    data: { data, slug: context.slug },
+  });
+  if (
+    availability?.data !== data
+    || typeof availability?.closed !== "boolean"
+    || !Array.isArray(availability?.effectiveOpenPeriods)
+    || !Object.hasOwn(AVAILABILITY_MESSAGES, availability?.publicMessageCode)
+  ) {
+    throw new Error("AVAILABILITY_RESPONSE_INVALID");
   }
-  const configRef = doc(db, "configuracoes", CONFIG_FUNCIONAMENTO);
-  const fechamentoRef = doc(db, "fechamentos_globais", data);
-  const [configSnap, fechamentoSnap] = await Promise.all([getDoc(configRef), getDoc(fechamentoRef)]);
-  if (fechamentoSnap.exists() && fechamentoSnap.data().ativo !== false) return { fechado: true, motivo: fechamentoSnap.data().motivo || "Barbearia fechada" };
-  if (fechamentoSemanal(configSnap.exists() ? configSnap.data() : null, data)) return { fechado: true, motivo: "Fechamento semanal" };
-  return { fechado: false, motivo: "" };
+  return {
+    fechado: availability.closed,
+    motivo: AVAILABILITY_MESSAGES[availability.publicMessageCode],
+    periodosEfetivos: availability.effectiveOpenPeriods,
+    codigoPublico: availability.publicMessageCode,
+  };
 }
 export function paraMinutos(horario) { const [hora, minuto] = String(horario).split(":").map(Number); return hora * 60 + minuto; }
 export function paraHorario(minutos) { return `${pad(Math.floor(minutos / 60))}:${pad(minutos % 60)}`; }
@@ -131,17 +117,16 @@ function atendimentoDentroDosPeriodos(horario, duracao, periodos) {
   return periodos.some((periodo) => inicio >= paraMinutos(periodo.inicio) && fim <= paraMinutos(periodo.fim));
 }
 export async function horariosDisponiveis(db, { barbeiro, barbeiroId, data, duracao, disponibilidadeGlobal }, { tenantContext } = {}) {
+  const context = requireTenantScope(tenantContext);
   if (!barbeiroId || !data || !duracao) return [];
-  const disponibilidade = disponibilidadeGlobal || await obterFechamentoGlobal(db, data, { tenantContext });
+  const disponibilidade = disponibilidadeGlobal || await obterFechamentoGlobal(db, data, { tenantContext: context });
   if (disponibilidade.fechado) return [];
   const candidatos = horariosCandidatos(barbeiro, data, Number(duracao), disponibilidade.periodosEfetivos)
     .filter((horario) => atendimentoDentroDosPeriodos(horario, duracao, disponibilidade.periodosEfetivos));
   const slots = horariosCandidatos(barbeiro, data, INTERVALO_MINUTOS, disponibilidade.periodosEfetivos);
   const ocupados = new Set((await Promise.all(slots.map(async (horario) => {
     try {
-      const occupationRef = tenantContext
-        ? tenantDocument(db, tenantContext, V2_COLLECTIONS.ocupacoes, idOcupacao(barbeiroId, data, horario))
-        : doc(db, "ocupacoes", idOcupacao(barbeiroId, data, horario));
+      const occupationRef = tenantDocument(db, context, V2_COLLECTIONS.ocupacoes, idOcupacao(barbeiroId, data, horario));
       return (await getDoc(occupationRef)).exists() ? horario : "";
     }
     catch (erro) { if (erro?.code === "permission-denied") return horario; throw erro; }

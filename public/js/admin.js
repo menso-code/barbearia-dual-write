@@ -128,17 +128,26 @@ document.querySelector("[data-logout]")?.addEventListener("click", async () => {
 // ----------------------------------------------------------------------------
 // Guarda de acesso: só entra quem tem doc em /admins/{uid}
 // ----------------------------------------------------------------------------
+function publicarEstadoAcessoAdmin(status) {
+  window.adminAccessState = status;
+  window.dispatchEvent(new CustomEvent("admin:access-state", { detail: { status } }));
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
+    publicarEstadoAcessoAdmin("DENIED");
     window.location.href = "index.html";
     return;
   }
+  publicarEstadoAcessoAdmin("CHECKING");
   const uidOperacional = await obterUidOperacional(user);
   const adminSnap = await getDoc(doc(db, "admins", uidOperacional));
   if (!adminSnap.exists()) {
+    publicarEstadoAcessoAdmin("DENIED");
     document.getElementById("locked-screen").style.display = "flex";
     return;
   }
+  publicarEstadoAcessoAdmin("READY");
   document.getElementById("admin-shell").style.display = "block";
   await carregarBarbeiros();
   await carregarServicos();

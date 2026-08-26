@@ -1,6 +1,10 @@
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { BARBEARIA_ATUAL_ID, db } from "./firebase-config.js";
+import { db } from "./firebase-config.js";
 import { executarComandoOperacional } from "./operational-commands.js";
+import {
+  TENANT_CONTEXT_STATES,
+  initializeTenantContext,
+} from "./tenant-context.js";
 import {
   STUDIO_SETTINGS_DEFAULTS,
   STUDIO_SETTINGS_FIELDS,
@@ -31,6 +35,32 @@ if (form) {
   };
   let persisted = { ...STUDIO_SETTINGS_DEFAULTS };
   let state = "LOADING";
+
+  const tenantStateMessages = {
+    [TENANT_CONTEXT_STATES.NOT_FOUND]: "Estabelecimento não encontrado.",
+    [TENANT_CONTEXT_STATES.UNAVAILABLE]: "Estabelecimento indisponível.",
+    [TENANT_CONTEXT_STATES.ERROR]: "Não foi possível carregar o estabelecimento.",
+  };
+
+  function waitForAdminAccessGuard() {
+    if (window.adminAccessState === "READY") return Promise.resolve();
+    if (window.adminAccessState === "DENIED") return Promise.reject(new Error("ADMIN_ACCESS_DENIED"));
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        window.removeEventListener("admin:access-state", onState);
+        reject(new Error("ADMIN_ACCESS_UNAVAILABLE"));
+      }, 15000);
+      function onState(event) {
+        const accessState = event.detail?.status;
+        if (!["READY", "DENIED"].includes(accessState)) return;
+        window.clearTimeout(timeout);
+        window.removeEventListener("admin:access-state", onState);
+        if (accessState === "READY") resolve();
+        else reject(new Error("ADMIN_ACCESS_DENIED"));
+      }
+      window.addEventListener("admin:access-state", onState);
+    });
+  }
 
   function readValues() {
     return Object.fromEntries(fieldNames.map((name) => [name, fields[name]?.value || ""]));
@@ -128,7 +158,21 @@ if (form) {
     setStatus("LOADING");
     setFeedback("Carregando identidade do estabelecimento...");
     try {
-      const identityRef = doc(db, "barbearias", BARBEARIA_ATUAL_ID, "configuracoes", "identidade");
+      const tenantContext = await initializeTenantContext();
+      if (tenantContext.status !== TENANT_CONTEXT_STATES.READY) {
+        persisted = { ...STUDIO_SETTINGS_DEFAULTS };
+        setValues(persisted);
+        setStatus("ERROR");
+        setFeedback(
+          tenantStateMessages[tenantContext.status] || "Não foi possível carregar o estabelecimento.",
+          "error",
+        );
+        renderPreview(validateStudioSettings(persisted));
+        render({ preserveError: true });
+        return;
+      }
+      await waitForAdminAccessGuard();
+      const identityRef = doc(db, "barbearias", tenantContext.tenantId, "configuracoes", "identidade");
       const snapshot = await getDoc(identityRef);
       persisted = snapshot.exists() ? studioIdentityToForm(snapshot.data()) : { ...STUDIO_SETTINGS_DEFAULTS };
       setValues(persisted);

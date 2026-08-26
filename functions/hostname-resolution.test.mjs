@@ -128,15 +128,18 @@ test("cache keys são sempre namespaced por slug e tenant", () => {
 test("camada permanece isolada do bootstrap global, dispatcher e Functions exportadas", async () => {
   const [{ readFile }, { default: path }] = await Promise.all([import("node:fs/promises"), import("node:path")]);
   const root = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/(.:)/, "$1"));
-  const [tenantSource, firebaseSource, indexSource, runtimeSource, resolverSource] = await Promise.all([
+  const [tenantSource, firebaseSource, contextSource, indexSource, runtimeSource, resolverSource] = await Promise.all([
     readFile(path.join(root, "public", "js", "tenant.js"), "utf8"),
     readFile(path.join(root, "public", "js", "firebase-config.js"), "utf8"),
+    readFile(path.join(root, "public", "js", "tenant-context.js"), "utf8"),
     readFile(path.join(root, "functions", "index.js"), "utf8"),
     readFile(path.join(root, "functions", "dual-write.js"), "utf8"),
     readFile(path.join(root, "functions", "hostname-resolution.mjs"), "utf8"),
   ]);
   assert.match(tenantSource, /BARBEARIA_PADRAO_ID/);
   assert.match(firebaseSource, /BARBEARIA_ATUAL_ID = getBarbeariaAtual\(\)/);
+  assert.match(contextSource, /registerTrustedTenantHostnameResolver/);
+  assert.doesNotMatch(contextSource, /parseGoEstudioTenantHostname|GOESTUDIO_PUBLIC_BASE_DOMAINS/);
   assert.doesNotMatch(indexSource, /resolveGoEstudioHostname|hostname-resolution/);
   assert.doesNotMatch(runtimeSource, /resolveGoEstudioHostname|hostname-resolution/);
   assert.doesNotMatch(resolverSource, /x-forwarded-host|forwarded-host/i);

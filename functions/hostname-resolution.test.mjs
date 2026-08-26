@@ -125,7 +125,7 @@ test("cache keys são sempre namespaced por slug e tenant", () => {
   assert.equal(tenantIdentityCacheKey("tenant-a"), "tenant:tenant-a:identity");
 });
 
-test("camada permanece isolada do bootstrap global, dispatcher e Functions exportadas", async () => {
+test("fundação permanece fora do dispatcher e é exposta somente pelo endpoint read-only", async () => {
   const [{ readFile }, { default: path }] = await Promise.all([import("node:fs/promises"), import("node:path")]);
   const root = path.resolve(new URL("..", import.meta.url).pathname.replace(/^\/(.:)/, "$1"));
   const [tenantSource, firebaseSource, contextSource, indexSource, runtimeSource, resolverSource] = await Promise.all([
@@ -140,7 +140,7 @@ test("camada permanece isolada do bootstrap global, dispatcher e Functions expor
   assert.doesNotMatch(firebaseSource, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(contextSource, /registerTrustedTenantHostnameResolver/);
   assert.doesNotMatch(contextSource, /parseGoEstudioTenantHostname|GOESTUDIO_PUBLIC_BASE_DOMAINS/);
-  assert.doesNotMatch(indexSource, /resolveGoEstudioHostname|hostname-resolution/);
+  assert.match(indexSource, /resolveTenantHostname.*hostname-resolution-endpoint/);
   assert.doesNotMatch(runtimeSource, /resolveGoEstudioHostname|hostname-resolution/);
   assert.doesNotMatch(resolverSource, /x-forwarded-host|forwarded-host/i);
 });

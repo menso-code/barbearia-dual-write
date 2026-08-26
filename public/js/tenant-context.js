@@ -6,6 +6,10 @@ import {
   tenantScopedCacheKey,
 } from "./tenant-context-core.mjs";
 import { BARBEARIA_PADRAO_ID, BARBEARIA_PADRAO_SLUG } from "./tenant.js";
+import {
+  redirectToCanonicalTenantHostname,
+  resolveTenantHostname,
+} from "./tenant-hostname-resolver.js";
 
 export {
   TENANT_CONTEXT_SOURCES,
@@ -35,6 +39,8 @@ const LEGACY_FIREBASE_COMPAT = Object.freeze({
 });
 
 let trustedHostnameResolver = null;
+let redirectStarted = false;
+let initializationPromise = null;
 const manager = createTenantContextManager({
   devFixture: LOCAL_DEV_TENANT_FIXTURE,
   legacyCompat: LEGACY_FIREBASE_COMPAT,
@@ -61,12 +67,26 @@ export function registerTrustedTenantHostnameResolver(resolver) {
     throw new Error("TENANT_CONTEXT_ALREADY_INITIALIZED");
   }
   if (typeof resolver !== "function") throw new TypeError("INVALID_TENANT_HOSTNAME_RESOLVER");
+  if (trustedHostnameResolver) throw new Error("TENANT_HOSTNAME_RESOLVER_ALREADY_REGISTERED");
   trustedHostnameResolver = resolver;
 }
 
+registerTrustedTenantHostnameResolver(resolveTenantHostname);
+
 export function initializeTenantContext() {
   const hostname = runtimeHostname();
-  return manager.initialize({ hostname, mode: runtimeMode(hostname) });
+  if (!initializationPromise) {
+    initializationPromise = manager
+      .initialize({ hostname, mode: runtimeMode(hostname) })
+      .then((context) => {
+        if (context.status === TENANT_CONTEXT_STATES.REDIRECT && !redirectStarted) {
+          redirectStarted = true;
+          redirectToCanonicalTenantHostname({ redirectToSlug: context.redirectToSlug });
+        }
+        return context;
+      });
+  }
+  return initializationPromise;
 }
 
 export function getTenantContext() {

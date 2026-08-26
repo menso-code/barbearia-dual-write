@@ -61,10 +61,15 @@ test("tenant indisponível e erro bloqueiam bootstrap de dados", async () => {
 
 test("redirect de slug não inicia contexto tenant na mesma página", async () => {
   const manager = createTenantContextManager({
-    resolveHostname: async () => ({ kind: "REDIRECT", redirectToSlug: "novo-slug" }),
+    resolveHostname: async () => ({
+      kind: "REDIRECT",
+      slug: "antigo",
+      redirectToSlug: "novo-slug",
+    }),
   });
   const context = await manager.initialize({ hostname: "antigo.goestudio.com.br" });
-  assert.equal(context.status, TENANT_CONTEXT_STATES.UNAVAILABLE);
+  assert.equal(context.status, TENANT_CONTEXT_STATES.REDIRECT);
+  assert.equal(context.redirectToSlug, "novo-slug");
   assert.equal(context.tenantId, "");
   assert.throws(() => manager.requireReady());
 });
@@ -123,9 +128,10 @@ test("cache tenant-scoped não permite namespace global", () => {
 test("integração frontend mantém autorização no servidor e compatibilidade isolada", async () => {
   const root = new URL("../", import.meta.url);
   const read = (path) => readFile(new URL(path, root), "utf8");
-  const [browser, core, studio, admin, firebaseConfig, tenant, commands, runtime] = await Promise.all([
+  const [browser, core, resolver, studio, admin, firebaseConfig, tenant, commands, runtime] = await Promise.all([
     read("public/js/tenant-context.js"),
     read("public/js/tenant-context-core.mjs"),
+    read("public/js/tenant-hostname-resolver.js"),
     read("public/js/admin-studio-settings.js"),
     read("public/js/admin.js"),
     read("public/js/firebase-config.js"),
@@ -136,6 +142,9 @@ test("integração frontend mantém autorização no servidor e compatibilidade 
 
   assert.match(browser, /barber-a01e7\.web\.app/);
   assert.match(browser, /registerTrustedTenantHostnameResolver/);
+  assert.match(browser, /registerTrustedTenantHostnameResolver\(resolveTenantHostname\)/);
+  assert.match(resolver, /httpsCallable\(functions, "resolveTenantHostname"\)/);
+  assert.doesNotMatch(resolver, /executeOperationalCommand|tenantId\s*:/);
   assert.doesNotMatch(`${browser}\n${core}`, /localStorage|sessionStorage|URLSearchParams/);
   assert.doesNotMatch(core, /tnt_80b2|\bantunes\b/i);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);

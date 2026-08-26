@@ -219,4 +219,25 @@ assert.match(pendingCore, /new Date\(`\$\{date\}T\$\{time\}`\)/);
 assert.match(pendingCss, /@media \(max-width: 767px\)/);
 assert.doesNotMatch(pending, /executeOperationalCommand|getDocs|getDoc|window\.(?:confirm|alert|prompt)/);
 
+const [tenantContextSource, hostnameAdapterSource, hostnameCoreSource, hostnameEndpointSource, functionsIndexSource] = await Promise.all([
+  read("public/js/tenant-context.js"),
+  read("public/js/tenant-hostname-resolver.js"),
+  read("public/js/tenant-hostname-resolver-core.mjs"),
+  read("functions/hostname-resolution-endpoint.mjs"),
+  read("functions/index.js"),
+]);
+assert.match(hostnameAdapterSource, /httpsCallable\(functions, "resolveTenantHostname"\)/);
+assert.doesNotMatch(hostnameAdapterSource, /executeOperationalCommand|operational-commands|tenantId\s*:/);
+assert.ok(
+  tenantContextSource.indexOf("registerTrustedTenantHostnameResolver(resolveTenantHostname)")
+    < tenantContextSource.indexOf("export function initializeTenantContext"),
+  "resolver de hostname deve ser registrado antes do bootstrap tenant",
+);
+assert.match(tenantContextSource, /redirectToCanonicalTenantHostname/);
+assert.match(hostnameCoreSource, /https:\/\/\$\{slug\}\.\$\{GOESTUDIO_PUBLIC_BASE_DOMAIN\}/);
+assert.match(functionsIndexSource, /resolveTenantHostname.*hostname-resolution-endpoint/);
+assert.doesNotMatch(hostnameEndpointSource, /executeOperationalCommand|requestId|idempot|runTransaction/);
+assert.doesNotMatch(hostnameEndpointSource, /\.(?:set|create|update|delete)\s*\(/);
+assert.doesNotMatch(`${tenantContextSource}\n${hostnameAdapterSource}\n${hostnameEndpointSource}`, /x-forwarded-host|forwarded-host/i);
+
 console.log("frontend contract self-test: PASS");

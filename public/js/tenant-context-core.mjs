@@ -2,6 +2,7 @@ export const TENANT_CONTEXT_STATES = Object.freeze({
   IDLE: "IDLE",
   RESOLVING: "RESOLVING",
   READY: "READY",
+  REDIRECT: "REDIRECT",
   NOT_FOUND: "NOT_FOUND",
   UNAVAILABLE: "UNAVAILABLE",
   ERROR: "ERROR",
@@ -26,6 +27,7 @@ function frozenContext(status, values = {}) {
     status,
     tenantId: values.tenantId || "",
     slug: values.slug || "",
+    ...(values.redirectToSlug ? { redirectToSlug: values.redirectToSlug } : {}),
     source: values.source || "",
   });
 }
@@ -45,6 +47,20 @@ function normalizeReadyCandidate(candidate, source) {
     throw new TenantContextError("INVALID_TENANT_RESOLUTION", "Contexto de estabelecimento inválido.");
   }
   return frozenContext(TENANT_CONTEXT_STATES.READY, { tenantId, slug, source });
+}
+
+function normalizeRedirectCandidate(candidate) {
+  const slug = String(candidate?.slug || "").trim().toLowerCase();
+  const redirectToSlug = String(candidate?.redirectToSlug || "").trim().toLowerCase();
+  const slugFormat = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+  if (
+    !slugFormat.test(slug)
+    || !slugFormat.test(redirectToSlug)
+    || slug === redirectToSlug
+  ) {
+    throw new TenantContextError("INVALID_TENANT_REDIRECT", "Redirecionamento inválido.");
+  }
+  return frozenContext(TENANT_CONTEXT_STATES.REDIRECT, { slug, redirectToSlug });
 }
 
 function localDevelopmentHostname(hostname) {
@@ -99,7 +115,10 @@ export function createTenantContextManager({ resolveHostname, devFixture, legacy
     if (resolution?.kind === "NOT_FOUND") {
       return frozenContext(TENANT_CONTEXT_STATES.NOT_FOUND);
     }
-    if (["UNAVAILABLE", "REDIRECT"].includes(resolution?.kind)) {
+    if (resolution?.kind === "REDIRECT") {
+      return normalizeRedirectCandidate(resolution);
+    }
+    if (resolution?.kind === "UNAVAILABLE") {
       return frozenContext(TENANT_CONTEXT_STATES.UNAVAILABLE);
     }
     throw new TenantContextError("INVALID_HOSTNAME_RESOLUTION", "Resposta de resolução inválida.");

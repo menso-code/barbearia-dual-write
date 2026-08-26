@@ -7,6 +7,7 @@ Fonte normativa: `functions/dual-write.js`. O envelope callable é `{ command, r
 | cliente.garantir-perfil | `extras` opcional | autenticado; próprio cliente | cliente, membro e `usuarios` em transação | requestId; argumentos inválidos |
 | cliente.atualizar-perfil | campos de perfil permitidos | autenticado; próprio cliente | cliente + V2; `usuarios.nome` opcional, transação | requestId; perfil ausente/sem alteração |
 | assinatura.solicitar | `planId` | autenticado; próprio cliente | solicitação + V2, transação | pendente existente = already-exists |
+| agenda.disponibilidade.obter | `data`, `slug`; sem `tenantId` ou path | CLIENTE ativo no tenant resolvido server-side pelo slug | leitura derivada V2 de funcionamento, fechamento e abertura; resposta mínima sem metadados administrativos; zero writes | requestId apenas estrutural; sem log/idempotency write; data, tenant e membership inválidos são rejeitados |
 | bloqueio.criar | barbeiro, data, início/fim, motivo | ADMIN ou barbeiro dono | bloqueio + ocupações Legado/V2, transação | requestId; horário ocupado/fora expediente |
 | bloqueio.remover | `blockId` | ADMIN ou barbeiro dono | bloqueio + ocupações correspondentes, transação | requestId; inexistente/sem permissão |
 | agenda.criar | barbeiro, serviço, data, horário; cliente/origem opcionais | ADMIN, barbeiro dono ou cliente permitido | agendamento + ocupações Legado/V2; créditos de assinatura quando aplicável, transação | replay por requestId; horário ocupado/indisponível |
@@ -30,7 +31,7 @@ Fonte normativa: `functions/dual-write.js`. O envelope callable é `{ command, r
 
 - HML: Auth UID → `homologacao_mapeamentos` → UID operacional; produção usa o Auth UID diretamente.
 - Administração exige `admins/{uid}` no tenant resolvido.
-- O runtime atual usa um `TENANT_ID` único; não há seleção de tenant pelo payload.
+- Os comandos mutáveis legados ainda usam um `TENANT_ID` fixo. A leitura `agenda.disponibilidade.obter` resolve o tenant no servidor pelo slug canônico e nunca aceita `tenantId` como autorização.
 - `email_acesso_index` é namespaced por tenant; e-mail igual em tenants distintos não conflita arquiteturalmente.
 - A auditoria estática não encontrou lookup global por e-mail concedendo papel.
 

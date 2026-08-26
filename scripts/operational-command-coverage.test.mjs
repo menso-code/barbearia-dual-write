@@ -7,7 +7,7 @@ const frontend = await readFile(new URL("../public-hml/js/operational-commands.j
 
 const commands = [
   "cliente.garantir-perfil", "cliente.atualizar-perfil", "assinatura.solicitar",
-  "bloqueio.criar", "bloqueio.remover", "agenda.criar", "agenda.reagendar",
+  "bloqueio.criar", "bloqueio.remover", "agenda.disponibilidade.obter", "agenda.criar", "agenda.reagendar",
   "agenda.cliente_chegou", "agenda.em_atendimento", "agenda.concluir", "agenda.cancelar",
   "agenda.nao_compareceu", "admin.barbeiro.salvar", "admin.barbeiro.remover",
 ];

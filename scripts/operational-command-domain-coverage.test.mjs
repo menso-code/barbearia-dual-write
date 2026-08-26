@@ -6,7 +6,7 @@ const runtime = await readFile(new URL("../functions/dual-write.js", import.meta
 
 const COMMANDS = [
   "cliente.garantir-perfil", "cliente.atualizar-perfil", "assinatura.solicitar",
-  "agenda.criar", "agenda.reagendar", "agenda.cliente_chegou", "agenda.em_atendimento",
+  "agenda.disponibilidade.obter", "agenda.criar", "agenda.reagendar", "agenda.cliente_chegou", "agenda.em_atendimento",
   "agenda.concluir", "agenda.cancelar", "agenda.nao_compareceu", "bloqueio.criar", "bloqueio.remover",
   "admin.funcionamento.salvar", "admin.abertura.salvar", "admin.abertura.remover",
   "admin.fechamento.salvar", "admin.fechamento.remover", "admin.barbeiro.salvar",
@@ -133,9 +133,20 @@ function rebook(domain, { tenant, originalId, newId, barberId, requestId, failAt
   }, failAt);
 }
 
-test("dispatcher atual registra exatamente 31 comandos e nenhum contrato crítico ficou fora", () => {
+test("dispatcher atual registra exatamente 32 comandos e nenhum contrato crítico ficou fora", () => {
   const registered = [...runtime.matchAll(/case "([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(registered, COMMANDS);
+});
+
+test("agenda.disponibilidade.obter permanece read-only e fora do log de idempotência", () => {
+  const start = runtime.indexOf('case "agenda.disponibilidade.obter"');
+  const end = runtime.indexOf('case "agenda.criar"', start);
+  const commandBody = runtime.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  assert.match(commandBody, /getDerivedAgendaAvailability/);
+  assert.match(commandBody, /onlyFields\(data, new Set\(\["data", "slug"\]\)\)/);
+  assert.doesNotMatch(commandBody, /tenantId|closureId|path/);
+  assert.doesNotMatch(commandBody, /transactionalCommand|operationLogRef|auditRecord|runTransaction/);
 });
 
 test("cliente pode atualizar somente seu perfil, sem conceder papel", () => {

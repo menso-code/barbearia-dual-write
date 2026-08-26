@@ -1,5 +1,4 @@
 import { auth, db } from "./firebase-config.js";
-import { obterUidOperacional } from "./homologation-identity.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   collection,
@@ -10,12 +9,52 @@ import {
   doc,
   getDoc,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { cancelarAgendamento as cancelarReserva, criarAgendamento, dataDentroDaJanelaDoCliente, horariosDisponiveis, limitesDataAgendamentoCliente, obterFechamentoGlobal } from "./agenda.js";
+import { createTenantScopedAgenda, dataDentroDaJanelaDoCliente, limitesDataAgendamentoCliente } from "./agenda.js";
 import { getCurrentUserAccess } from "./access-control.js";
 import { executarComandoOperacional } from "./operational-commands.js";
+import {
+  initializeTenantContext,
+  tenantContextIsReady,
+  TENANT_CONTEXT_STATES,
+} from "./tenant-context.js";
+
+const tenantContext = await initializeTenantContext();
+const tenantFailureMessages = Object.freeze({
+  [TENANT_CONTEXT_STATES.NOT_FOUND]: "Estabelecimento não encontrado.",
+  [TENANT_CONTEXT_STATES.UNAVAILABLE]: "Estabelecimento indisponível.",
+  [TENANT_CONTEXT_STATES.ERROR]: "Não foi possível carregar o estabelecimento.",
+});
+
+function renderTenantFailure(status, message = "") {
+  document.querySelector(".topbar")?.setAttribute("hidden", "");
+  const container = document.querySelector(".container");
+  if (!container) return;
+  const state = document.createElement("section");
+  state.className = "empty-state";
+  state.setAttribute("role", "status");
+  const title = document.createElement("h2");
+  title.textContent = message || tenantFailureMessages[status] || "Não foi possível carregar o estabelecimento.";
+  const description = document.createElement("p");
+  description.textContent = "Confira o endereço acessado e tente novamente.";
+  state.append(title, description);
+  container.replaceChildren(state);
+}
+
+let appTenantConsumersStarted = false;
+if (!tenantContextIsReady(tenantContext)) {
+  renderTenantFailure(tenantContext.status);
+} else if (!appTenantConsumersStarted) {
+appTenantConsumersStarted = true;
+const {
+  cancelarAgendamento: cancelarReserva,
+  criarAgendamento,
+  horariosDisponiveis,
+  obterFechamentoGlobal,
+} = createTenantScopedAgenda(tenantContext);
+const tenantCollection = (name) => collection(db, "barbearias", tenantContext.tenantId, name);
+const tenantDocument = (name, id) => doc(db, "barbearias", tenantContext.tenantId, name, id);
 
 let usuarioAtual = null;
-let uidOperacionalAtual = "";
 let barbeiroSelecionado = null;
 let barbeirosDisponiveis = [];
 let versaoPermissoes = 0;
@@ -26,6 +65,27 @@ let servicosDisponiveis = [];
 let assinaturaSelecionadaParaAgendamento = null;
 let agendamentoPorAssinatura = false;
 let barbeiroAutomaticoPorHorario = new Map();
+let appBootstrapGeneration = 0;
+
+function resetTenantScopedState() {
+  usuarioAtual = null;
+  barbeiroSelecionado = null;
+  barbeirosDisponiveis = [];
+  planoParaSolicitar = null;
+  servicosDisponiveis = [];
+  assinaturaSelecionadaParaAgendamento = null;
+  agendamentoPorAssinatura = false;
+  barbeiroAutomaticoPorHorario = new Map();
+  limparMenuPrivilegiado();
+}
+
+function currentBootstrap(user, generation) {
+  return generation === appBootstrapGeneration && auth.currentUser?.uid === user.uid;
+}
+
+function assertCurrentGeneration(generation = appBootstrapGeneration) {
+  if (generation !== appBootstrapGeneration) throw new Error("STALE_TENANT_BOOTSTRAP");
+}
 
 document.querySelectorAll("[data-logout]").forEach((logoutButton) => logoutButton.addEventListener("click", async () => {
   try {
@@ -41,82 +101,67 @@ document.querySelectorAll("[data-logout]").forEach((logoutButton) => logoutButto
 // Guarda de sessão
 // ----------------------------------------------------------------------------
 onAuthStateChanged(auth, async (user) => {
+  const generation = ++appBootstrapGeneration;
   if (!user) {
-    limparMenuPrivilegiado();
+    resetTenantScopedState();
     window.location.href = "index.html";
     return;
   }
   const minhaVersaoPermissoes = ++versaoPermissoes;
-  limparMenuPrivilegiado();
+  resetTenantScopedState();
   usuarioAtual = user;
-  uidOperacionalAtual = await obterUidOperacional(user);
-  // Garante que cada conta tenha seu próprio perfil em clientes/{uid}.
-  // O painel admin usa exatamente esse mesmo UID para buscar o telefone.
-  const clienteRef = doc(db, "clientes", uidOperacionalAtual);
-  let clienteSnap = await getDoc(clienteRef);
-  if (!clienteSnap.exists()) {
-    await executarComandoOperacional("cliente.garantir-perfil", { extras: {
-      nome: user.displayName || "",
-      email: user.email || "",
-      telefone: String(user.phoneNumber || "").replace(/\D/g, ""),
-    } });
-    clienteSnap = await getDoc(clienteRef);
-  }
-  const chip = document.getElementById("user-chip");
-  const userRole = document.getElementById("user-role");
-  const perfil = clienteSnap.exists() ? clienteSnap.data() : {};
-  const nomeExibido = perfil.nome || user.displayName || user.email || "";
-  chip.textContent = nomeExibido;
-  if (userRole) userRole.textContent = "Cliente";
-  const avatar = document.getElementById("header-avatar");
-  if (avatar) {
-    const avatarUrl = perfil.avatar_data;
-    if (avatarUrl) {
-      avatar.style.backgroundImage = `url(${avatarUrl})`;
-      avatar.textContent = "";
-    } else {
-      avatar.style.backgroundImage = "";
-      avatar.textContent = nomeExibido.split(/\s+/).filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase() || "BA";
+  try {
+    // O TenantContext seleciona somente o estabelecimento exibido. A
+    // autorização definitiva continua no backend e nas Rules.
+    const clienteRef = tenantDocument("clientes", user.uid);
+    let clienteSnap = await getDoc(clienteRef);
+    if (!currentBootstrap(user, generation)) return;
+    if (!clienteSnap.exists()) {
+      await executarComandoOperacional("cliente.garantir-perfil", { extras: {
+        nome: user.displayName || "",
+        email: user.email || "",
+        telefone: String(user.phoneNumber || "").replace(/\D/g, ""),
+      } });
+      clienteSnap = await getDoc(clienteRef);
+      if (!currentBootstrap(user, generation)) return;
     }
-  }
+    const chip = document.getElementById("user-chip");
+    const userRole = document.getElementById("user-role");
+    const perfil = clienteSnap.exists() ? clienteSnap.data() : {};
+    const nomeExibido = perfil.nome || user.displayName || user.email || "";
+    chip.textContent = nomeExibido;
+    if (userRole) userRole.textContent = "Cliente";
+    const avatar = document.getElementById("header-avatar");
+    if (avatar) {
+      const avatarUrl = perfil.avatar_data;
+      if (avatarUrl) {
+        avatar.style.backgroundImage = `url(${avatarUrl})`;
+        avatar.textContent = "";
+      } else {
+        avatar.style.backgroundImage = "";
+        avatar.textContent = nomeExibido.split(/\s+/).filter(Boolean).slice(0, 2).map((n) => n[0]).join("").toUpperCase() || "BA";
+      }
+    }
 
-  await carregarBarbeiros();
-  await carregarServicos();
-  await carregarAssinaturasCliente();
-  await carregarMeusAgendamentos();
-  await atualizarMenuPorPermissao(user, minhaVersaoPermissoes);
-  abrirReagendamentoDaConta();
+    await carregarBarbeiros(generation);
+    if (!currentBootstrap(user, generation)) return;
+    await carregarServicos(generation);
+    if (!currentBootstrap(user, generation)) return;
+    await carregarAssinaturasCliente(generation);
+    if (!currentBootstrap(user, generation)) return;
+    await carregarMeusAgendamentos(generation);
+    if (!currentBootstrap(user, generation)) return;
+    await atualizarMenuPorPermissao(user, minhaVersaoPermissoes);
+    if (!currentBootstrap(user, generation)) return;
+    abrirReagendamentoDaConta();
+  } catch (error) {
+    if (!currentBootstrap(user, generation)) return;
+    resetTenantScopedState();
+    console.error("Falha no bootstrap tenant-scoped do App.", error);
+    renderTenantFailure(TENANT_CONTEXT_STATES.ERROR);
+  }
 });
 
-/* Legado: links estáticos removidos; a renderização autorizada fica abaixo. */
-/*
-async function atualizarAcessoBarbeiro(uid) {
-  const link = document.getElementById("barber-panel-link");
-  if (!link) return;
-  try {
-    const snap = await getDocs(query(collection(db, "barbeiros"), where("uid_usuario", "==", uid)));
-    link.hidden = snap.empty;
-  } catch (err) {
-    link.hidden = true;
-    console.warn("Não foi possível verificar o acesso ao painel do barbeiro.", err);
-  }
-}
-
-// A interface só exibe o atalho após validar a mesma fonte de verdade usada
-// pelas regras e pelo admin.html: o documento admins/{uid}.
-async function atualizarAcessoAdmin(uid) {
-  const link = document.getElementById("admin-panel-link");
-  if (!link) return;
-  link.hidden = true;
-  try {
-    link.hidden = !(await getDoc(doc(db, "admins", uid))).exists();
-  } catch (err) {
-    link.hidden = true;
-    console.warn("Não foi possível verificar o acesso administrativo.", err);
-  }
-}
-
-*/
 function limparMenuPrivilegiado() {
   document.getElementById("privileged-menu-items")?.replaceChildren();
 }
@@ -238,10 +283,11 @@ document.querySelectorAll("[data-view-btn]").forEach((b) =>
 // ----------------------------------------------------------------------------
 // Carregar barbeiros ativos
 // ----------------------------------------------------------------------------
-async function carregarBarbeiros() {
+async function carregarBarbeiros(generation = appBootstrapGeneration) {
   const grid = document.getElementById("barbeiros-grid");
-  const q = query(collection(db, "barbeiros"), where("ativo", "==", true));
+  const q = query(tenantCollection("barbeiros"), where("ativo", "==", true));
   const snap = await getDocs(q);
+  assertCurrentGeneration(generation);
   barbeirosDisponiveis = snap.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
 
   if (snap.empty) {
@@ -376,7 +422,7 @@ function assinaturaEstaValida(assinatura) {
   return vencimento > new Date();
 }
 
-async function carregarAssinaturasCliente() {
+async function carregarAssinaturasCliente(generation = appBootstrapGeneration) {
   const grid = document.getElementById("assinaturas-cliente-grid");
   const planosDisponiveis = document.getElementById("planos-disponiveis");
   if (!grid || !usuarioAtual) return;
@@ -386,9 +432,10 @@ async function carregarAssinaturasCliente() {
   grid.innerHTML = '<p style="color:var(--cinza)">Carregando planos…</p>';
   try {
     const [planosAtivos, assinaturasSnap] = await Promise.all([
-      getDocs(query(collection(db, "planos_assinatura"), where("ativo", "==", true))),
-      getDocs(query(collection(db, "solicitacoes_assinatura"), where("cliente_id", "==", usuarioAtual.uid))),
+      getDocs(query(tenantCollection("planos_assinatura"), where("ativo", "==", true))),
+      getDocs(query(tenantCollection("assinaturas"), where("cliente_id", "==", usuarioAtual.uid))),
     ]);
+    assertCurrentGeneration(generation);
     const assinaturas = assinaturasSnap.docs
       .map((item) => ({ id: item.id, ...item.data() }));
     const ativasOrdenadas = assinaturas
@@ -435,6 +482,7 @@ async function carregarAssinaturasCliente() {
       grid.appendChild(card);
     });
   } catch (erro) {
+    if (erro?.message === "STALE_TENANT_BOOTSTRAP") return;
     console.error("Falha ao carregar planos ativos.", erro);
     if (planosDisponiveis) planosDisponiveis.hidden = false;
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><h3>Não foi possível carregar as assinaturas</h3><p>Tente novamente em instantes.</p></div>';
@@ -475,7 +523,7 @@ document.getElementById("btn-confirmar-solicitacao-assinatura")?.addEventListene
   mensagem.className = "msg";
   try {
     // Releitura obrigatória: nunca confia no preço/nome do card renderizado.
-    const planoSnap = await getDoc(doc(db, "planos_assinatura", planoParaSolicitar.id));
+    const planoSnap = await getDoc(tenantDocument("planos_assinatura", planoParaSolicitar.id));
     if (!planoSnap.exists() || planoSnap.data().ativo !== true) {
       throw new Error("PLANO_INDISPONIVEL");
     }
@@ -489,12 +537,12 @@ document.getElementById("btn-confirmar-solicitacao-assinatura")?.addEventListene
     }
 
     // Uma solicitação pendente por cliente/plano evita duplo clique ou repetição.
-    const anteriores = await getDocs(query(collection(db, "solicitacoes_assinatura"), where("cliente_id", "==", usuarioAtual.uid)));
+    const anteriores = await getDocs(query(tenantCollection("assinaturas"), where("cliente_id", "==", usuarioAtual.uid)));
     if (anteriores.docs.some((item) => item.data().plano_id === plano.id && item.data().status === "PENDENTE")) {
       throw new Error("SOLICITACAO_EXISTENTE");
     }
 
-    const clienteSnap = await getDoc(doc(db, "clientes", usuarioAtual.uid));
+    const clienteSnap = await getDoc(tenantDocument("clientes", usuarioAtual.uid));
     const clienteNome = clienteSnap.exists()
       ? String(clienteSnap.data().nome || "")
       : String(usuarioAtual.displayName || usuarioAtual.email || "");
@@ -535,9 +583,10 @@ function abrirReagendamentoDaConta() {
 // ----------------------------------------------------------------------------
 // Carregar serviços disponíveis
 // ----------------------------------------------------------------------------
-async function carregarServicos() {
+async function carregarServicos(generation = appBootstrapGeneration) {
   const select = document.getElementById("ag-servico");
-  const snap = await getDocs(collection(db, "servicos"));
+  const snap = await getDocs(tenantCollection("servicos"));
+  assertCurrentGeneration(generation);
   servicosDisponiveis = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
   preencherServicosAgendamento(servicosDisponiveis);
   if (snap.empty) {
@@ -712,10 +761,15 @@ async function atualizarHorariosDisponiveis() {
         select.innerHTML = `<option value="">Escolha um serviço incluído</option>`;
         return;
       }
+      const disponibilidadeGlobal = await obterFechamentoGlobal(db, data);
+      if (disponibilidadeGlobal.fechado) {
+        select.innerHTML = `<option value="">Barbearia fechada neste dia</option>`;
+        return;
+      }
       const candidatos = barbeirosDisponiveis.filter((barbeiro) => barbeiroRealizaServico(barbeiro, servicoAtual));
       const horariosPorBarbeiro = await Promise.all(candidatos.map(async (barbeiro) => ({
         barbeiro,
-        horarios: await horariosDisponiveis(db, { barbeiro, barbeiroId: barbeiro.id, data, duracao: Number(servico.dataset.duracao || 30) }),
+        horarios: await horariosDisponiveis(db, { barbeiro, barbeiroId: barbeiro.id, data, duracao: Number(servico.dataset.duracao || 30), disponibilidadeGlobal }),
       })));
       barbeiroAutomaticoPorHorario = new Map();
       horariosPorBarbeiro.forEach(({ barbeiro, horarios }) => horarios.forEach((horario) => {
@@ -740,6 +794,7 @@ async function atualizarHorariosDisponiveis() {
       barbeiroId: barbeiroSelecionado.id,
       data,
       duracao: Number(servico.dataset.duracao || 30),
+      disponibilidadeGlobal: fechamento,
     });
     select.innerHTML = `<option value="">${horarios.length ? "Selecione" : "Nenhum horário disponível"}</option>`;
     horarios.forEach((horario) => {
@@ -826,9 +881,11 @@ document.getElementById("form-agendar").addEventListener("submit", async (e) => 
     let barbeiroDoAgendamento = barbeiroSelecionado;
     const creditoAssinaturaTipo = agendamentoPorAssinatura ? tipoCreditoDaAssinatura(servicoAtual) : "";
     if (agendamentoPorAssinatura) {
+      const disponibilidadeGlobal = await obterFechamentoGlobal(db, data);
+      if (disponibilidadeGlobal.fechado) throw new Error("HORARIO_INDISPONIVEL");
       const candidatos = barbeirosDisponiveis.filter((barbeiro) => barbeiroRealizaServico(barbeiro, servicoAtual));
       for (const barbeiro of candidatos) {
-        const horarios = await horariosDisponiveis(db, { barbeiro, barbeiroId: barbeiro.id, data, duracao });
+        const horarios = await horariosDisponiveis(db, { barbeiro, barbeiroId: barbeiro.id, data, duracao, disponibilidadeGlobal });
         if (horarios.includes(horario)) {
           barbeiroDoAgendamento = barbeiro;
           break;
@@ -837,7 +894,7 @@ document.getElementById("form-agendar").addEventListener("submit", async (e) => 
       if (!barbeiroDoAgendamento) throw new Error("HORARIO_INDISPONIVEL");
     }
     // pega o nome do cliente (para exibição no painel admin)
-    const clienteSnap = await getDoc(doc(db, "clientes", usuarioAtual.uid));
+    const clienteSnap = await getDoc(tenantDocument("clientes", usuarioAtual.uid));
     const clienteNome = clienteSnap.exists()
       ? clienteSnap.data().nome
       : usuarioAtual.displayName || usuarioAtual.email || "Cliente";
@@ -899,16 +956,17 @@ document.getElementById("form-agendar").addEventListener("submit", async (e) => 
 // ----------------------------------------------------------------------------
 // Meus agendamentos
 // ----------------------------------------------------------------------------
-async function carregarMeusAgendamentos() {
+async function carregarMeusAgendamentos(generation = appBootstrapGeneration) {
   const lista = document.getElementById("meus-lista");
   lista.innerHTML = `<p style="color:var(--cinza)">Carregando…</p>`;
 
   const q = query(
-    collection(db, "agendamentos"),
+    tenantCollection("agendamentos"),
     where("cliente_id", "==", usuarioAtual.uid),
     orderBy("data", "desc")
   );
   const snap = await getDocs(q);
+  assertCurrentGeneration(generation);
 
   if (snap.empty) {
     lista.innerHTML = `<div class="empty-state">
@@ -949,7 +1007,7 @@ async function cancelarAgendamento(id, btn) {
   btn.disabled = true;
   btn.textContent = "Cancelando…";
   try {
-    const snap = await getDoc(doc(db, "agendamentos", id));
+    const snap = await getDoc(tenantDocument("agendamentos", id));
     await cancelarReserva(db, { id, ...snap.data() });
     await carregarMeusAgendamentos();
   } catch (err) {
@@ -973,4 +1031,5 @@ function formatarDataCompleta(iso) {
     year: "numeric",
   }).format(new Date(`${iso}T12:00:00`));
   return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
 }

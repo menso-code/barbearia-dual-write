@@ -12,6 +12,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { defineString } from "firebase-functions/params";
 import { emailAutorizado, normalizarEmail, unirPapeisPrimeiroVinculo } from "./first-link-policy.mjs";
+import { AgendaAvailabilityError, getDerivedAgendaAvailability } from "./agenda-availability.mjs";
 
 const TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
 const STUDIO_IDENTITY_ID = "identidade";
@@ -41,6 +42,23 @@ const SAMUEL_HML_EMAIL = "menso333+samuelhml@gmail.com";
 
 function error(code, message) {
   throw new HttpsError(code, message);
+}
+
+function mapAgendaAvailabilityError(cause) {
+  if (!(cause instanceof AgendaAvailabilityError)) throw cause;
+  if (["INVALID_DATE", "INVALID_SLUG"].includes(cause.code)) {
+    error("invalid-argument", cause.message);
+  }
+  if (cause.code === "CLIENT_MEMBERSHIP_REQUIRED") {
+    error("permission-denied", cause.message);
+  }
+  if (cause.code === "TENANT_NOT_FOUND") {
+    error("not-found", cause.message);
+  }
+  if (["TENANT_UNAVAILABLE", "INVALID_AVAILABILITY_CONFIG"].includes(cause.code)) {
+    error("failed-precondition", cause.message);
+  }
+  error("internal", "Não foi possível consultar a disponibilidade.");
 }
 
 
@@ -1165,6 +1183,16 @@ async function dispatch(request) {
       return updateClientProfile({ uid, data: payload.data, requestId });
     case "assinatura.solicitar":
       return requestSubscription({ uid, planId: payload.planId, requestId });
+    case "agenda.disponibilidade.obter": {
+      onlyFields(payload, new Set(["command", "requestId", "data"]));
+      const data = extractCommandData(payload);
+      onlyFields(data, new Set(["data", "slug"]));
+      try {
+        return await getDerivedAgendaAvailability({ db, uid, data: data.data, slug: data.slug });
+      } catch (cause) {
+        return mapAgendaAvailabilityError(cause);
+      }
+    }
     case "agenda.criar": {
       const data = extractCommandData(payload);
       return createAppointment({ uid, authUid, data, requestId });

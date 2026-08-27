@@ -892,7 +892,7 @@ async function transitionAppointment({ uid, appointmentId, action, requestId, co
   });
 }
 
-async function createBlock({ uid, data, requestId }) {
+async function createBlock({ uid, data, requestId, context = null }) {
   const incoming = requireObject(data);
   const barberId = cleanText(incoming.barbeiro_id, 200);
   const date = cleanDate(incoming.data);
@@ -901,13 +901,32 @@ async function createBlock({ uid, data, requestId }) {
   const duration = minutes(end) - minutes(start);
   if (duration <= 0 || duration % 30) error("invalid-argument", "BLOQUEIO_INVALIDO");
   const id = `${barberId}_${date}_${start}`;
-  return transactionalCommand({ operation: "bloqueio.criar", actorUid: uid, requestId, execute: async (tx) => {
-    if (!await isAdmin(tx, uid) && !await barberOwnedBy(tx, uid, barberId)) error("permission-denied", "Permissão insuficiente.");
+  const block = {
+    barbeiro_id: barberId,
+    data: date,
+    inicio: start,
+    fim: end,
+    duracao: duration,
+    motivo: cleanText(incoming.motivo || "Bloqueado", 240),
+    criado_em: nowTimestampField(),
+  };
+  const requestFingerprint = operationalPayloadFingerprint({
+    barbeiro_id: barberId,
+    data: date,
+    inicio: start,
+    fim: end,
+    motivo: block.motivo,
+  });
+  return transactionalCommand({ operation: "bloqueio.criar", actorUid: uid, requestId, context, requestFingerprint, execute: async (tx) => {
+    await requireBlockPermission(tx, uid, context, block);
+    const ref = (collection, refId) => context
+      ? tenantPrimaryRef(context, collection, refId)
+      : legacyRef(collection, refId);
     const [barberSnap, configSnap, closeSnap, openingSnap] = await Promise.all([
-      tx.get(legacyRef("barbeiros", barberId)),
-      tx.get(legacyRef("configuracoes", "funcionamento")),
-      tx.get(legacyRef("fechamentos_globais", date)),
-      tx.get(legacyRef("fechamentos_globais", `abertura_${date}`)),
+      tx.get(ref("barbeiros", barberId)),
+      tx.get(ref("configuracoes", "funcionamento")),
+      tx.get(ref("fechamentos_globais", date)),
+      tx.get(ref("fechamentos_globais", `abertura_${date}`)),
     ]);
     if (!barberSnap.exists) error("not-found", "BARBEIRO_INDISPONIVEL");
     const opening = openingPeriods(openingSnap);
@@ -915,11 +934,14 @@ async function createBlock({ uid, data, requestId }) {
     if ((closeSnap.exists && closeSnap.get("ativo") !== false) || (!opening && ((configSnap.exists && configSnap.get("dias_fechados_semana")?.[weekday] === true) || (!configSnap.exists && weekday === 0)))) error("failed-precondition", "BLOQUEIO_FORA_DO_EXPEDIENTE");
     const slots = appointmentBlocks(start, duration);
     if (slots.some((slot) => !validBarberSlots(barberSnap.data(), date, configSnap.data(), opening ? { tipo: "abertura", periods: opening } : null).has(slot))) error("failed-precondition", "BLOQUEIO_FORA_DO_EXPEDIENTE");
-    const refs = slots.map((slot) => legacyRef("ocupacoes", occupancyId(barberId, date, slot)));
+    const refs = slots.map((slot) => ref("ocupacoes", occupancyId(barberId, date, slot)));
     const occupied = await Promise.all(refs.map((ref) => tx.get(ref)));
     if (occupied.some((snap) => snap.exists)) error("already-exists", "HORARIO_OCUPADO");
-    mirrorSet(tx, "bloqueios", id, { barbeiro_id: barberId, data: date, inicio: start, fim: end, duracao: duration, motivo: cleanText(incoming.motivo || "Bloqueado", 240), criado_em: nowTimestampField() });
-    slots.forEach((slot) => mirrorSet(tx, "ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, bloqueio_id: id, tipo: "bloqueio", criado_em: nowTimestampField() }));
+    const write = (collection, refId, value) => context
+      ? tenantSet(tx, context, collection, refId, value)
+      : mirrorSet(tx, collection, refId, value);
+    write("bloqueios", id, block);
+    slots.forEach((slot) => write("ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, bloqueio_id: id, tipo: "bloqueio", criado_em: nowTimestampField() }));
     return { blockId: id, slots: slots.length };
   }});
 }
@@ -1571,7 +1593,7 @@ async function dispatch(request) {
       return transitionAppointment({ uid, appointmentId: requireAppointmentId(data), action: command.replace("agenda.", ""), requestId });
     }
     case "bloqueio.criar":
-      return createBlock({ uid, data: payload.data, requestId });
+      return createBlock({ uid, data: payload.data, requestId, context });
     case "bloqueio.remover":
       return deleteBlock({ uid, blockId: payload.blockId, requestId, context });
     case "admin.funcionamento.salvar":

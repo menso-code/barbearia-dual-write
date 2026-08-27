@@ -97,6 +97,10 @@ const SLICE_6_COMMANDS = Object.freeze([
   "agenda.em_atendimento",
 ]);
 
+const SLICE_7_COMMANDS = Object.freeze([
+  "bloqueio.criar",
+]);
+
 const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS]);
 
 const ALL_OPERATIONAL_COMMANDS = Object.freeze([
@@ -138,6 +142,7 @@ async function rejectsCode(promise, code) {
 test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS, [
     "agenda.disponibilidade.obter",
+    ...SLICE_7_COMMANDS,
     ...SLICE_5_COMMANDS,
     ...SLICE_6_COMMANDS,
     "admin.estudio.identidade.salvar",
@@ -203,6 +208,28 @@ test("TENANT_A_BLOQUEIO_REMOVE_PASS e TENANT_B_BLOQUEIO_REMOVE_PASS", async () =
   }
 });
 
+test("TENANT_A_BLOQUEIO_CREATE_PASS e TENANT_B_BLOQUEIO_CREATE_PASS", async () => {
+  const db = fixture();
+  for (const command of SLICE_7_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a", {
+      barbeiro_id: "barber-a",
+      data: "2030-01-02",
+      inicio: "10:00",
+      fim: "11:00",
+    });
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b", {
+      barbeiro_id: "barber-b",
+      data: "2030-01-02",
+      inicio: "10:00",
+      fim: "11:00",
+    });
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  }
+});
+
 test("TENANT_A_AGENDA_TRANSITIONS_PASS e TENANT_B_AGENDA_TRANSITIONS_PASS", async () => {
   const db = fixture();
   for (const command of SLICE_6_COMMANDS) {
@@ -215,12 +242,12 @@ test("TENANT_A_AGENDA_TRANSITIONS_PASS e TENANT_B_AGENDA_TRANSITIONS_PASS", asyn
   }
 });
 
-test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5 e 6", async () => {
+test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6 e 7", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
   });
-  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS, ...SLICE_6_COMMANDS]) {
+  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS, ...SLICE_6_COMMANDS, ...SLICE_7_COMMANDS]) {
     const context = await resolveOperationalContext({
       db,
       projectId: "barber-a01e7",
@@ -396,10 +423,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_18_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_17_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 18);
+  assert.equal(remaining.length, 17);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

@@ -1081,6 +1081,7 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "plano.inicial",
   "plano.salvar",
   "plano.ativar",
+  "assinatura.aprovar",
   "assinatura.recusar",
   "assinatura.cancelar",
   "assinatura.expirar",
@@ -1373,6 +1374,46 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
           atualizado_por: uid,
         });
         return { planId: activation.id };
+      },
+    });
+  }
+
+  if (action === "assinatura.aprovar") {
+    onlyFields(incoming, new Set(["id"]));
+    const id = cleanText(incoming.id, 300);
+    if (!id) error("invalid-argument", "Solicitação de assinatura inválida.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const subscription = await tx.get(tenantPrimaryRef(context, "solicitacoes_assinatura", id));
+        if (!subscription.exists || subscription.get("status") !== "PENDENTE") {
+          error("failed-precondition", "SOLICITACAO_INDISPONIVEL");
+        }
+        const planId = cleanText(subscription.get("plano_id"), 200);
+        const plan = await tx.get(tenantPrimaryRef(context, "planos_assinatura", planId));
+        if (!plan.exists || (context.mode === OPERATIONAL_CONTEXT_MODES.V2_ONLY && plan.get("ativo") !== true)) {
+          error("failed-precondition", "PLANO_SEM_CREDITOS");
+        }
+        const serviceIds = [...new Set(Array.isArray(plan.get("servicos_ids")) ? plan.get("servicos_ids").map(String) : [])];
+        const serviceSnaps = await Promise.all(serviceIds.map((serviceId) => (
+          tx.get(tenantPrimaryRef(context, "servicos", serviceId))
+        )));
+        if (serviceSnaps.some((service) => !service.exists)) error("failed-precondition", "PLANO_SEM_CREDITOS");
+        const services = new Map(serviceSnaps.map((service, index) => [serviceIds[index], service.data()]));
+        tenantUpdate(tx, context, "solicitacoes_assinatura", id, {
+          status: "ATIVA",
+          ativado_em: nowTimestampField(),
+          vencimento_em: dueDateOneMonth(),
+          ativado_por: uid,
+          servicos_ids: serviceIds,
+          creditos_mensais: subscriptionCredits(plan.data(), services),
+        });
+        return { subscriptionId: id, status: "ATIVA" };
       },
     });
   }

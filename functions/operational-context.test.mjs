@@ -101,7 +101,11 @@ const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
 ]);
 
-const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS]);
+const SLICE_8_COMMANDS = Object.freeze([
+  "admin.assinatura.recusar",
+]);
+
+const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS, ...SLICE_8_COMMANDS]);
 
 const ALL_OPERATIONAL_COMMANDS = Object.freeze([
   "cliente.garantir-perfil", "cliente.atualizar-perfil", "assinatura.solicitar",
@@ -149,6 +153,7 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_2_COMMANDS,
     ...SLICE_3_COMMANDS,
     ...SLICE_4_COMMANDS,
+    ...SLICE_8_COMMANDS,
   ]);
   const db = fixture();
   const tenantA = await identityContext(db, "studio-a", "admin-a");
@@ -242,7 +247,20 @@ test("TENANT_A_AGENDA_TRANSITIONS_PASS e TENANT_B_AGENDA_TRANSITIONS_PASS", asyn
   }
 });
 
-test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6 e 7", async () => {
+test("TENANT_A_ASSINATURA_RECUSAR_PASS e TENANT_B_ASSINATURA_RECUSAR_PASS", async () => {
+  const db = fixture();
+  for (const command of SLICE_8_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a", { id: "subscription-a" });
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b", { id: "subscription-b" });
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.deepEqual(tenantA.actor.roles, ["ADMIN", "CLIENTE"]);
+  }
+});
+
+test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6, 7 e 8", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
@@ -423,10 +441,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_17_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_16_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 17);
+  assert.equal(remaining.length, 16);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

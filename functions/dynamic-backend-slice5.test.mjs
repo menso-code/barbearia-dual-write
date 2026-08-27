@@ -236,7 +236,7 @@ test("ROLLBACK_ON_FAILURE preserva bloqueio e ocupações", () => {
 test("runtime mantém os demais comandos fora da migração Slice 5", () => {
   const context = sourceBetween("async function tenantScopedAdminCommand", "async function adminCommand");
   assert.doesNotMatch(context, /bloqueio\.criar/);
-  for (const excluded of ["cliente.atualizar-perfil", "assinatura.recusar", "agenda.criar", "admin.barbeiro.salvar"]) {
+  for (const excluded of ["cliente.atualizar-perfil", "agenda.criar", "admin.barbeiro.salvar"]) {
     assert.doesNotMatch(context, new RegExp(excluded.replaceAll(".", "\\.")));
   }
 });

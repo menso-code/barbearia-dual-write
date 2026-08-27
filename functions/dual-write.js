@@ -1065,6 +1065,7 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "plano.inicial",
   "plano.salvar",
   "plano.ativar",
+  "assinatura.recusar",
 ]);
 
 async function requireContextAdmin(tx, uid, context) {
@@ -1357,6 +1358,32 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
     });
   }
 
+  if (action === "assinatura.recusar") {
+    onlyFields(incoming, new Set(["id"]));
+    const id = cleanText(incoming.id, 300);
+    if (!id) error("invalid-argument", "Solicitação de assinatura inválida.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const subscription = await tx.get(tenantPrimaryRef(context, "solicitacoes_assinatura", id));
+        if (!subscription.exists || subscription.get("status") !== "PENDENTE") {
+          error("failed-precondition", "SOLICITACAO_INDISPONIVEL");
+        }
+        tenantUpdate(tx, context, "solicitacoes_assinatura", id, {
+          status: "RECUSADA",
+          recusado_em: nowTimestampField(),
+          recusado_por: uid,
+        });
+        return { subscriptionId: id, status: "RECUSADA" };
+      },
+    });
+  }
+
   error("internal", "Comando tenant-scoped não suportado.");
 }
 
@@ -1483,10 +1510,9 @@ async function adminCommand({ uid, action, data, requestId, context }) {
       return { barberId: id, removed: true };
     }
 
-    if (action === "assinatura.aprovar" || action === "assinatura.recusar") {
+    if (action === "assinatura.aprovar") {
       onlyFields(incoming, new Set(["id"])); const id = cleanText(incoming.id, 300); const subscription = await tx.get(legacyRef("solicitacoes_assinatura", id));
       if (!subscription.exists || subscription.get("status") !== "PENDENTE") error("failed-precondition", "SOLICITACAO_INDISPONIVEL");
-      if (action === "assinatura.recusar") { mirrorUpdate(tx, "solicitacoes_assinatura", id, { status: "RECUSADA", recusado_em: nowTimestampField(), recusado_por: uid }); return { subscriptionId: id, status: "RECUSADA" }; }
       const plan = await tx.get(legacyRef("planos_assinatura", cleanText(subscription.get("plano_id"), 200))); if (!plan.exists) error("failed-precondition", "PLANO_SEM_CREDITOS");
       const services = new Map(); for (const serviceId of plan.get("servicos_ids") || []) { const service = await tx.get(legacyRef("servicos", serviceId)); if (!service.exists) error("failed-precondition", "PLANO_SEM_CREDITOS"); services.set(serviceId, service.data()); }
       const planData = plan.data(); const credits = subscriptionCredits(planData, services);

@@ -145,7 +145,7 @@ const expiredSubscription = {
 test("Slice 10 registra somente admin.assinatura.expirar e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 10);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 7);
   const handler = sourceBetween('if (action === "assinatura.expirar")', 'if (action === "assinatura.renovar")');
   assert.match(handler, /onlyFields\(incoming, new Set\(\["id"\]\)\)/);
   assert.match(handler, /requireContextAdmin\(tx, uid, context\)/);
@@ -256,9 +256,9 @@ test("ROLLBACK_ON_FAILURE preserva assinatura e auditoria", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_10_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_7_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 10);
+  assert.equal(remaining.length, 7);
   assert.equal(remaining.includes("admin.assinatura.expirar"), false);
   assert.equal(remaining.includes("agenda.criar"), true);
   assert.equal(allCommands.length, 32);

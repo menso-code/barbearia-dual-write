@@ -84,7 +84,7 @@ class AtomicMutationModel {
 }
 
 test("Slice 2 mantém registrados os quatro comandos administrativos selecionados", () => {
-  const setSource = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", "]);\n\nasync function requireContextAdmin");
+  const setSource = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", `]);`);
   for (const command of SELECTED_COMMANDS) {
     assert.match(setSource, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }

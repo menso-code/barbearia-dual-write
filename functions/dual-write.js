@@ -624,6 +624,7 @@ async function ensureAppointmentPermission(tx, uid, appointment, action, context
     const admin = roles.includes("ADMIN") || (context.tenant.id === ANTUNES_TENANT_ID && await isAdmin(tx, uid));
     if (admin) return;
     if (roles.includes("BARBEIRO") && appointment.barbeiro_id && await barberOwnedBy(tx, uid, appointment.barbeiro_id, context)) return;
+    if (action === "cancelar" && roles.includes("CLIENTE") && appointment.cliente_id === uid) return;
     error("permission-denied", "Permissão insuficiente.");
   }
   const admin = await isAdmin(tx, uid);
@@ -872,7 +873,11 @@ async function transitionAppointment({ uid, appointmentId, action, requestId, co
       const slots = appointmentBlocks(appointment.horario, duration);
       const subscriptionId = String(appointment.assinatura_id || "");
       const creditType = String(appointment.assinatura_credito_tipo || "");
-      const subscriptionRef = subscriptionId ? legacyRef("solicitacoes_assinatura", subscriptionId) : null;
+      const subscriptionRef = subscriptionId
+        ? context
+          ? tenantPrimaryRef(context, "solicitacoes_assinatura", subscriptionId)
+          : legacyRef("solicitacoes_assinatura", subscriptionId)
+        : null;
       const consumes = ["concluir", "nao_compareceu"].includes(action) && appointment.origem === "assinatura" && subscriptionId && creditType;
       const releases = action === "cancelar" && appointment.credito_assinatura_reservado === true && appointment.credito_assinatura_consumido !== true && subscriptionId && creditType;
       const subscriptionSnap = subscriptionRef ? await tx.get(subscriptionRef) : null;
@@ -893,15 +898,23 @@ async function transitionAppointment({ uid, appointmentId, action, requestId, co
           ultimo_consumo_em: nowTimestampField(),
           ...(creditsExhausted(credits) ? { status: "EXPIRADA", expirada_em: nowTimestampField(), motivo_expiracao: "CREDITOS_ESGOTADOS" } : {}),
         } : { creditos_mensais: credits, ultima_liberacao_agendamento_id: id, ultima_liberacao_em: nowTimestampField() };
-        mirrorUpdate(tx, "solicitacoes_assinatura", subscriptionId, subscriptionPatch);
-        if (consumes) mirrorSet(tx, "historico_assinaturas", `${id}_credito`, { assinatura_id: subscriptionId, cliente_id: appointment.cliente_id, plano_id: appointment.assinatura_plano_id || "", agendamento_id: id, servico_nome: appointment.servico_nome || "Serviço", barbeiro_id: appointment.barbeiro_id, barbeiro_nome: appointment.barbeiro_nome || "Barbeiro", credito_tipo: creditType, creditos_consumidos: 1, utilizado_em: nowTimestampField() });
+        if (context) tenantUpdate(tx, context, "solicitacoes_assinatura", subscriptionId, subscriptionPatch);
+        else mirrorUpdate(tx, "solicitacoes_assinatura", subscriptionId, subscriptionPatch);
+        if (consumes) {
+          const history = { assinatura_id: subscriptionId, cliente_id: appointment.cliente_id, plano_id: appointment.assinatura_plano_id || "", agendamento_id: id, servico_nome: appointment.servico_nome || "Serviço", barbeiro_id: appointment.barbeiro_id, barbeiro_nome: appointment.barbeiro_nome || "Barbeiro", credito_tipo: creditType, creditos_consumidos: 1, utilizado_em: nowTimestampField() };
+          if (context) tenantSet(tx, context, "historico_assinaturas", `${id}_credito`, history);
+          else mirrorSet(tx, "historico_assinaturas", `${id}_credito`, history);
+        }
       }
       const status = action === "concluir" ? "concluido" : action === "cancelar" ? "cancelado" : "nao_compareceu";
       const statusAt = action === "concluir" ? "completed_at" : `${status}_em`;
-      mirrorUpdate(tx, "agendamentos", id, { status, [statusAt]: nowTimestampField(), ...(consumes ? { credito_assinatura_consumido: true } : {}) });
+      const appointmentPatch = { status, [statusAt]: nowTimestampField(), ...(consumes ? { credito_assinatura_consumido: true } : {}) };
+      if (context) tenantUpdate(tx, context, "agendamentos", id, appointmentPatch);
+      else mirrorUpdate(tx, "agendamentos", id, appointmentPatch);
       if (action !== "concluir") slots.forEach((slot) => {
         const occupancyIdValue = occupancyId(appointment.barbeiro_id, appointment.data, slot);
-        mirrorDelete(tx, "ocupacoes", occupancyIdValue);
+        if (context) tenantDelete(tx, context, "ocupacoes", occupancyIdValue);
+        else mirrorDelete(tx, "ocupacoes", occupancyIdValue);
       });
       return { appointmentId: id, status };
     },
@@ -1778,7 +1791,7 @@ async function dispatch(request) {
     case "agenda.cancelar":
     case "agenda.nao_compareceu": {
       const data = extractCommandData(payload);
-      return transitionAppointment({ uid, appointmentId: requireAppointmentId(data), action: command.replace("agenda.", ""), requestId });
+      return transitionAppointment({ uid, appointmentId: requireAppointmentId(data), action: command.replace("agenda.", ""), requestId, context });
     }
     case "bloqueio.criar":
       return createBlock({ uid, data: payload.data, requestId, context });

@@ -118,16 +118,17 @@ class Slice6Model {
 
 const appointment = { cliente_id: "client-a", barbeiro_id: "barber-a", status: "agendado" };
 
-test("Slice 6 migra somente as duas transições aprovadas e mantém 32 comandos", () => {
+test("Slice 6 mantém suas transições tenant-scoped após a Slice 15", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selectedCommands.includes(command)), selectedCommands);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 10);
-  const selectedCase = sourceBetween('case "agenda.cliente_chegou"', 'case "agenda.concluir"');
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 7);
+  const selectedCase = sourceBetween('case "agenda.cliente_chegou"', 'case "bloqueio.criar"');
   assert.match(selectedCase, /requestId, context/);
+  assert.match(selectedCase, /case "agenda\.concluir"/);
+  assert.match(selectedCase, /case "agenda\.cancelar"/);
+  assert.match(selectedCase, /case "agenda\.nao_compareceu"/);
   const transition = sourceBetween("async function transitionAppointment", "async function createBlock");
   assert.match(transition, /tenantUpdate\(tx, context, "agendamentos"/);
-  const legacyCase = sourceBetween('case "agenda.concluir"', 'case "bloqueio.criar"');
-  assert.doesNotMatch(legacyCase, /requestId, context/);
 });
 
 test("TENANT_A_AGENDA_TRANSITIONS_PASS e TENANT_B_AGENDA_TRANSITIONS_PASS", () => {
@@ -224,9 +225,9 @@ test("ROLLBACK_ON_FAILURE preserva o agendamento", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_10_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("OTHER_7_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
   const remaining = allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 10);
+  assert.equal(remaining.length, 7);
   assert.equal(remaining.includes("agenda.criar"), true);
   assert.equal(remaining.includes("admin.assinatura.recusar"), false);
   assert.equal(remaining.includes("bloqueio.criar"), false);

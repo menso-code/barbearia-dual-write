@@ -145,7 +145,7 @@ class Slice3Model {
 }
 
 test("Slice 3 mantém os três handlers e não incorpora domínios excluídos", () => {
-  const actionSet = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", "]);\n\nasync function requireContextAdmin");
+  const actionSet = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", `]);`);
   for (const command of SLICE_3_COMMANDS) {
     assert.match(actionSet, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }

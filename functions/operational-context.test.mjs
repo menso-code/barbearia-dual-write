@@ -96,6 +96,11 @@ const SLICE_6_COMMANDS = Object.freeze([
   "agenda.cliente_chegou",
   "agenda.em_atendimento",
 ]);
+const SLICE_15_COMMANDS = Object.freeze([
+  "agenda.concluir",
+  "agenda.cancelar",
+  "agenda.nao_compareceu",
+]);
 
 const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
@@ -171,6 +176,7 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_7_COMMANDS,
     ...SLICE_5_COMMANDS,
     ...SLICE_6_COMMANDS,
+    ...SLICE_15_COMMANDS,
     "admin.estudio.identidade.salvar",
     ...SLICE_2_COMMANDS,
     ...SLICE_3_COMMANDS,
@@ -293,7 +299,7 @@ test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6, 7 
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
   });
-  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS, ...SLICE_6_COMMANDS, ...SLICE_7_COMMANDS]) {
+  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS, ...SLICE_6_COMMANDS, ...SLICE_15_COMMANDS, ...SLICE_7_COMMANDS]) {
     const context = await resolveOperationalContext({
       db,
       projectId: "barber-a01e7",
@@ -469,10 +475,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_10_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_7_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 10);
+  assert.equal(remaining.length, 7);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

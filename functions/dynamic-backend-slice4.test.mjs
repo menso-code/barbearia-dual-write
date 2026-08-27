@@ -137,7 +137,7 @@ class Slice4Model {
 }
 
 test("Slice 4 registra somente os dois comandos aprovados e mantém 32 comandos", () => {
-  const actionSet = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", "]);\n\nasync function requireContextAdmin");
+  const actionSet = sourceBetween("const TENANT_SCOPED_ADMIN_ACTIONS", `]);`);
   for (const command of SLICE_4_COMMANDS) {
     assert.match(actionSet, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }

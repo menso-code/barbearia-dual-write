@@ -121,7 +121,7 @@ const appointment = { cliente_id: "client-a", barbeiro_id: "barber-a", status: "
 test("Slice 6 migra somente as duas transições aprovadas e mantém 32 comandos", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selectedCommands.includes(command)), selectedCommands);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 15);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 14);
   const selectedCase = sourceBetween('case "agenda.cliente_chegou"', 'case "agenda.concluir"');
   assert.match(selectedCase, /requestId, context/);
   const transition = sourceBetween("async function transitionAppointment", "async function createBlock");
@@ -224,9 +224,9 @@ test("ROLLBACK_ON_FAILURE preserva o agendamento", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_15_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("OTHER_14_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
   const remaining = allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 15);
+  assert.equal(remaining.length, 14);
   assert.equal(remaining.includes("agenda.criar"), true);
   assert.equal(remaining.includes("admin.assinatura.recusar"), false);
   assert.equal(remaining.includes("bloqueio.criar"), false);

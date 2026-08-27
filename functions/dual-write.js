@@ -1067,6 +1067,7 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "plano.ativar",
   "assinatura.recusar",
   "assinatura.cancelar",
+  "assinatura.expirar",
 ]);
 
 async function requireContextAdmin(tx, uid, context) {
@@ -1409,6 +1410,37 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
           motivo_cancelamento: motivo,
         });
         return { subscriptionId: id, status: "CANCELADA" };
+      },
+    });
+  }
+
+  if (action === "assinatura.expirar") {
+    onlyFields(incoming, new Set(["id"]));
+    const id = cleanText(incoming.id, 300);
+    if (!id) error("invalid-argument", "Solicitação de assinatura inválida.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const subscription = await tx.get(tenantPrimaryRef(context, "solicitacoes_assinatura", id));
+        if (!subscription.exists || subscription.get("status") !== "ATIVA") {
+          error("failed-precondition", "ASSINATURA_INDISPONIVEL");
+        }
+        const dueAt = subscription.get("vencimento_em")?.toDate?.();
+        const exhausted = creditsExhausted(subscription.get("creditos_mensais"));
+        if (!exhausted && (!dueAt || dueAt > new Date())) {
+          error("failed-precondition", "ASSINATURA_AINDA_ATIVA");
+        }
+        tenantUpdate(tx, context, "solicitacoes_assinatura", id, {
+          status: "EXPIRADA",
+          expirada_em: nowTimestampField(),
+          motivo_expiracao: exhausted ? "CREDITOS_ESGOTADOS" : "VENCIMENTO",
+        });
+        return { subscriptionId: id, status: "EXPIRADA" };
       },
     });
   }

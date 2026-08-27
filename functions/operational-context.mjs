@@ -37,6 +37,7 @@ export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "admin.plano.salvar",
   "admin.assinatura.recusar",
   "admin.assinatura.cancelar",
+  "admin.assinatura.expirar",
 ]);
 
 const DYNAMIC_TENANT_COMMAND_SET = new Set(DYNAMIC_TENANT_COMMANDS);
@@ -55,6 +56,7 @@ const ROLE_BY_COMMAND = new Map([
   ["admin.plano.salvar", "ADMIN"],
   ["admin.assinatura.recusar", "ADMIN"],
   ["admin.assinatura.cancelar", "ADMIN"],
+  ["admin.assinatura.expirar", "ADMIN"],
 ]);
 const ALWAYS_V2_ONLY_COMMANDS = new Set(["admin.estudio.identidade.salvar"]);
 const HML_ANTUNES_COMPAT_COMMANDS = new Set([
@@ -73,6 +75,7 @@ const HML_ANTUNES_COMPAT_COMMANDS = new Set([
   "admin.plano.salvar",
   "admin.assinatura.recusar",
   "admin.assinatura.cancelar",
+  "admin.assinatura.expirar",
 ]);
 const FORBIDDEN_CLIENT_KEYS = new Set([
   "tenantId", "tenant_id", "path", "documentPath", "collectionPath",

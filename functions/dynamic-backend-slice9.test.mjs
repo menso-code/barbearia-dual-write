@@ -129,7 +129,7 @@ const subscription = {
 test("Slice 9 registra somente admin.assinatura.cancelar e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 15);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 14);
   const handler = sourceBetween('if (action === "assinatura.cancelar")', 'error("internal"');
   assert.match(handler, /onlyFields\(incoming, new Set\(\["id", "motivo"\]\)\)/);
   assert.match(handler, /requireContextAdmin\(tx, uid, context\)/);
@@ -293,10 +293,11 @@ test("ROLLBACK_ON_FAILURE preserva assinatura e auditoria", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_15_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_14_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 15);
+  assert.equal(remaining.length, 14);
   assert.equal(remaining.includes("admin.assinatura.cancelar"), false);
+  assert.equal(remaining.includes("admin.assinatura.expirar"), false);
   assert.equal(remaining.includes("admin.assinatura.aprovar"), true);
   assert.equal(allCommands.length, 32);
 });

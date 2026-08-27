@@ -109,6 +109,10 @@ const SLICE_9_COMMANDS = Object.freeze([
   "admin.assinatura.cancelar",
 ]);
 
+const SLICE_10_COMMANDS = Object.freeze([
+  "admin.assinatura.expirar",
+]);
+
 const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS, ...SLICE_8_COMMANDS]);
 
 const ALL_OPERATIONAL_COMMANDS = Object.freeze([
@@ -159,6 +163,7 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_4_COMMANDS,
     ...SLICE_8_COMMANDS,
     ...SLICE_9_COMMANDS,
+    ...SLICE_10_COMMANDS,
   ]);
   const db = fixture();
   const tenantA = await identityContext(db, "studio-a", "admin-a");
@@ -446,10 +451,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_15_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_14_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 15);
+  assert.equal(remaining.length, 14);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

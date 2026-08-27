@@ -192,7 +192,7 @@ const client = {
 test("Slice 12 registra somente cliente.atualizar-perfil e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 12);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 11);
   const handler = sourceBetween("async function updateClientProfile", "async function requestSubscription");
   assert.match(handler, /context\s*\?\s*tenantPrimaryRef\(context, "clientes", uid\)/);
   assert.match(handler, /tenantUpdate\(tx, context, "clientes", uid, changes\)/);
@@ -345,9 +345,9 @@ test("ROLLBACK_ON_FAILURE preserva perfil e identidade global", () => {
   assert.deepEqual(model.snapshot(), before);
 });
 
-test("OTHER_12_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_11_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 12);
+  assert.equal(remaining.length, 11);
   assert.equal(remaining.includes(command), false);
   assert.equal(remaining.includes("agenda.criar"), true);
   assert.equal(allCommands.length, 32);

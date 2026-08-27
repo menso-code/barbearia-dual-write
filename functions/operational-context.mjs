@@ -38,6 +38,7 @@ export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "admin.assinatura.recusar",
   "admin.assinatura.cancelar",
   "admin.assinatura.expirar",
+  "admin.assinatura.renovar",
   "assinatura.solicitar",
   "cliente.atualizar-perfil",
 ]);
@@ -59,6 +60,7 @@ const ROLE_BY_COMMAND = new Map([
   ["admin.assinatura.recusar", "ADMIN"],
   ["admin.assinatura.cancelar", "ADMIN"],
   ["admin.assinatura.expirar", "ADMIN"],
+  ["admin.assinatura.renovar", "ADMIN"],
   ["assinatura.solicitar", "CLIENTE"],
   ["cliente.atualizar-perfil", "CLIENTE"],
 ]);
@@ -80,6 +82,7 @@ const HML_ANTUNES_COMPAT_COMMANDS = new Set([
   "admin.assinatura.recusar",
   "admin.assinatura.cancelar",
   "admin.assinatura.expirar",
+  "admin.assinatura.renovar",
   "assinatura.solicitar",
   "cliente.atualizar-perfil",
 ]);

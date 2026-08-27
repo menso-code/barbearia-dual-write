@@ -156,7 +156,7 @@ const validData = { barbeiro_id: "barber-a", data: "2026-08-27", inicio: "10:00"
 test("Slice 7 permanece isolada e mantém 32 comandos após Slice 8", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 12);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 11);
   const create = sourceBetween("async function createBlock", "async function requireBlockPermission");
   assert.match(create, /context = null/);
   assert.match(create, /operationalPayloadFingerprint/);
@@ -267,9 +267,9 @@ test("REQUEST_ID_TENANT_ISOLATED, SAME_TENANT_COLLISION_PROTECTED e rollback", (
   assert.throws(() => collision.createBlock({ mode: OPERATIONAL_CONTEXT_MODES.V2_ONLY, tenantId: "tenant-a", uid: "admin-a", roles: ["ADMIN"], data: { ...validData, motivo: "Outro" }, requestId: "collision-0001" }), (cause) => cause?.code === "REQUEST_ID_COLLISION");
 });
 
-test("OTHER_12_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_11_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 12);
+  assert.equal(remaining.length, 11);
   assert.equal(remaining.includes("bloqueio.criar"), false);
   assert.equal(allCommands.length, 32);
 });

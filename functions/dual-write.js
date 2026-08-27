@@ -15,6 +15,7 @@ import { emailAutorizado, normalizarEmail, unirPapeisPrimeiroVinculo } from "./f
 import { AgendaAvailabilityError, getTenantAgendaAvailability } from "./agenda-availability.mjs";
 import {
   ANTUNES_TENANT_ID,
+  OPERATIONAL_CONTEXT_MODES,
   OperationalContextError,
   assertIdempotentReplay,
   operationalPayloadFingerprint,
@@ -623,6 +624,42 @@ function mirrorDelete(tx, collection, id) {
   tx.delete(v2Ref(collection, id));
 }
 
+function tenantCollectionRef(context, collection) {
+  const mapped = COLLECTION_MAP.get(collection);
+  if (!mapped) error("internal", "Coleção sem espelho V2.");
+  return db.collection(`barbearias/${context.tenant.id}/${mapped}`);
+}
+
+function tenantPrimaryRef(context, collection, id) {
+  return context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+    ? legacyRef(collection, id)
+    : v2Ref(context, collection, id);
+}
+
+function tenantSet(tx, context, collection, id, data, options = {}) {
+  if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) {
+    mirrorSet(tx, collection, id, data, options);
+    return;
+  }
+  tx.set(v2Ref(context, collection, id), data, options);
+}
+
+function tenantUpdate(tx, context, collection, id, data) {
+  if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) {
+    mirrorUpdate(tx, collection, id, data);
+    return;
+  }
+  tx.update(v2Ref(context, collection, id), data);
+}
+
+function tenantDelete(tx, context, collection, id) {
+  if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) {
+    mirrorDelete(tx, collection, id);
+    return;
+  }
+  tx.delete(v2Ref(context, collection, id));
+}
+
 async function createAppointment({ uid, authUid, data, requestId }) {
   const incoming = requireObject(data);
   const barberId = cleanText(incoming.barbeiro_id, 200);
@@ -958,6 +995,311 @@ function subscriptionCredits(plan, services) {
   }]));
 }
 
+const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
+  "funcionamento.salvar",
+  "servico.salvar",
+  "servico.remover",
+  "barbeiro.ativar",
+  "abertura.salvar",
+  "abertura.remover",
+  "plano.inicial",
+  "plano.salvar",
+  "plano.ativar",
+]);
+
+async function requireContextAdmin(tx, uid, context) {
+  if (context.tenant.id === ANTUNES_TENANT_ID) await requireAdmin(tx, uid);
+  await requireTenantAdminMembership(tx, uid, context.tenant.id);
+}
+
+async function tenantScopedAdminCommand({ uid, action, incoming, requestId, context }) {
+  if (action === "funcionamento.salvar") {
+    onlyFields(incoming, new Set(["intervalo_minutos", "periodos_semana", "dias_fechados_semana"]));
+    const weekly = requireObject(incoming.dias_fechados_semana);
+    const functioning = {
+      intervalo_minutos: Number(incoming.intervalo_minutos),
+      periodos_semana: validatePeriodsMap(incoming.periodos_semana),
+      dias_fechados_semana: Object.fromEntries(Array.from({ length: 7 }, (_, day) => [day, Boolean(weekly[day])])),
+    };
+    if (functioning.intervalo_minutos !== 30) error("invalid-argument", "INTERVALO_INVALIDO");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint(functioning),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        tenantSet(tx, context, "configuracoes", "funcionamento", {
+          ...functioning,
+          atualizado_em: nowTimestampField(),
+          atualizado_por: uid,
+        }, { merge: true });
+        return { updated: "funcionamento" };
+      },
+    });
+  }
+
+  if (action === "servico.salvar") {
+    onlyFields(incoming, new Set(["id", "nome", "descricao", "duracao", "preco", "ativo"]));
+    const requestedId = cleanText(incoming.id || "", 200);
+    const service = {
+      nome: cleanText(incoming.nome, 160),
+      descricao: cleanText(incoming.descricao || "", 1000),
+      duracao: Number(incoming.duracao),
+      preco: cleanText(incoming.preco, 80),
+      ativo: incoming.ativo !== false,
+    };
+    if (!service.nome || !Number.isInteger(service.duracao) || service.duracao < 30 || service.duracao % 30 || !service.preco) {
+      error("invalid-argument", "Serviço inválido.");
+    }
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id: requestedId, ...service }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const id = requestedId || (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+          ? db.collection("servicos").doc().id
+          : tenantCollectionRef(context, "servicos").doc().id);
+        const existing = await tx.get(tenantPrimaryRef(context, "servicos", id));
+        tenantSet(tx, context, "servicos", id, {
+          ...service,
+          ...(existing.exists ? {} : { criado_em: nowTimestampField() }),
+        }, { merge: existing.exists });
+        return { serviceId: id, created: !existing.exists };
+      },
+    });
+  }
+
+  if (action === "servico.remover") {
+    onlyFields(incoming, new Set(["id"]));
+    const id = cleanText(incoming.id, 200);
+    if (!id) error("invalid-argument", "Serviço inválido.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        tenantDelete(tx, context, "servicos", id);
+        return { serviceId: id };
+      },
+    });
+  }
+
+  if (action === "barbeiro.ativar") {
+    onlyFields(incoming, new Set(["id", "ativo"]));
+    const activation = { id: cleanText(incoming.id, 200), ativo: Boolean(incoming.ativo) };
+    if (!activation.id) error("invalid-argument", "Barbeiro inválido.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint(activation),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const barber = await tx.get(tenantPrimaryRef(context, "barbeiros", activation.id));
+        if (!barber.exists) error("not-found", "BARBEIRO_INDISPONIVEL");
+        tenantUpdate(tx, context, "barbeiros", activation.id, { ativo: activation.ativo });
+        const linkedUid = cleanText(barber.get("uid_usuario") || "", 200);
+        if (linkedUid) {
+          tx.set(db.doc(`barbearias/${context.tenant.id}/membros/${linkedUid}`), {
+            ativo: activation.ativo,
+            atualizado_em: nowTimestampField(),
+          }, { merge: true });
+        }
+        return { barberId: activation.id };
+      },
+    });
+  }
+
+  if (action === "abertura.salvar") {
+    onlyFields(incoming, new Set(["data", "inicio", "fim", "motivo"]));
+    const date = cleanDate(incoming.data);
+    const inicio = cleanTime(incoming.inicio);
+    const fim = cleanTime(incoming.fim);
+    if (minutes(inicio) >= minutes(fim) || minutes(inicio) % 30 || minutes(fim) % 30) {
+      error("invalid-argument", "ABERTURA_INVALIDA");
+    }
+    const openingId = `abertura_${date}`;
+    const opening = {
+      data: date,
+      tipo: "abertura",
+      inicio_horario: inicio,
+      fim_horario: fim,
+      motivo: cleanText(incoming.motivo || "Abertura excepcional", 240),
+      ativo: true,
+    };
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint(opening),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        tenantSet(tx, context, "fechamentos_globais", openingId, {
+          ...opening,
+          criado_em: nowTimestampField(),
+          criado_por: uid,
+        }, { merge: true });
+        return { openingId };
+      },
+    });
+  }
+
+  if (action === "abertura.remover") {
+    onlyFields(incoming, new Set(["data"]));
+    const date = cleanDate(incoming.data);
+    const openingId = `abertura_${date}`;
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ date, openingId }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        tenantDelete(tx, context, "fechamentos_globais", openingId);
+        return { openingId, removed: true };
+      },
+    });
+  }
+
+  if (action === "plano.inicial") {
+    onlyFields(incoming, new Set(["id", "nome", "descricao", "usos_mensais", "servicos_incluidos"]));
+    const id = cleanText(incoming.id, 120);
+    if (!new Set(["essencial", "prime", "premium"]).has(id)) {
+      error("invalid-argument", "Plano inicial inválido.");
+    }
+    const initialPlan = {
+      nome: cleanText(incoming.nome, 160),
+      descricao: cleanText(incoming.descricao, 1000),
+      usos_mensais: Number(incoming.usos_mensais),
+      servicos_incluidos: Array.isArray(incoming.servicos_incluidos)
+        ? incoming.servicos_incluidos.map((item) => cleanText(item, 160))
+        : [],
+      servicos_ids: [],
+      preco_centavos: 0,
+      preco_definido: false,
+      ativo: false,
+    };
+    if (!initialPlan.nome || !Number.isInteger(initialPlan.usos_mensais) || initialPlan.usos_mensais < 1) {
+      error("invalid-argument", "Plano inicial inválido.");
+    }
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id, ...initialPlan }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const existing = await tx.get(tenantPrimaryRef(context, "planos_assinatura", id));
+        if (existing.exists) return { planId: id, created: false };
+        tenantSet(tx, context, "planos_assinatura", id, {
+          ...initialPlan,
+          criado_em: nowTimestampField(),
+          atualizado_em: nowTimestampField(),
+          criado_por: uid,
+          atualizado_por: uid,
+        });
+        return { planId: id, created: true };
+      },
+    });
+  }
+
+  if (action === "plano.salvar") {
+    onlyFields(incoming, new Set(["id", "nome", "descricao", "preco_centavos", "preco_definido", "usos_mensais", "servicos_ids", "ativo"]));
+    const requestedId = cleanText(incoming.id || "", 200);
+    const serviceIds = Array.isArray(incoming.servicos_ids)
+      ? [...new Set(incoming.servicos_ids.map((item) => cleanText(item, 200)))]
+      : [];
+    const price = Number(incoming.preco_centavos);
+    const uses = Number(incoming.usos_mensais);
+    const planInput = {
+      nome: cleanText(incoming.nome, 160),
+      descricao: cleanText(incoming.descricao, 1000),
+      preco_centavos: price,
+      preco_definido: incoming.preco_definido !== false,
+      usos_mensais: uses,
+      servicos_ids: serviceIds,
+      ativo: Boolean(incoming.ativo),
+    };
+    if (!planInput.nome || !planInput.descricao || !Number.isInteger(price) || price < 0
+      || !Number.isInteger(uses) || uses < 1 || !serviceIds.length || uses % serviceIds.length) {
+      error("invalid-argument", "Plano inválido.");
+    }
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id: requestedId, ...planInput }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const id = requestedId || (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+          ? db.collection("planos_assinatura").doc().id
+          : tenantCollectionRef(context, "planos_assinatura").doc().id);
+        const serviceSnaps = await Promise.all(serviceIds.map((serviceId) => (
+          tx.get(tenantPrimaryRef(context, "servicos", serviceId))
+        )));
+        if (serviceSnaps.some((snap) => !snap.exists)) error("failed-precondition", "SERVICO_INDISPONIVEL");
+        const existing = await tx.get(tenantPrimaryRef(context, "planos_assinatura", id));
+        const plan = {
+          ...planInput,
+          servicos_incluidos: serviceSnaps.map((snap) => cleanText(snap.get("nome"), 160)),
+          atualizado_em: nowTimestampField(),
+          atualizado_por: uid,
+          ...(existing.exists ? {} : { criado_em: nowTimestampField(), criado_por: uid }),
+        };
+        tenantSet(tx, context, "planos_assinatura", id, plan, { merge: existing.exists });
+        return { planId: id, created: !existing.exists };
+      },
+    });
+  }
+
+  if (action === "plano.ativar") {
+    onlyFields(incoming, new Set(["id", "ativo"]));
+    const activation = { id: cleanText(incoming.id, 200), ativo: Boolean(incoming.ativo) };
+    if (!activation.id) error("invalid-argument", "Plano inválido.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint(activation),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const plan = await tx.get(tenantPrimaryRef(context, "planos_assinatura", activation.id));
+        if (!plan.exists) error("not-found", "PLANO_INDISPONIVEL");
+        if (activation.ativo === true && (
+          !Number.isInteger(plan.get("preco_centavos"))
+          || plan.get("preco_centavos") <= 0
+          || !Array.isArray(plan.get("servicos_ids"))
+          || !plan.get("servicos_ids").length
+        )) {
+          error("failed-precondition", "PLANO_INDISPONIVEL");
+        }
+        tenantUpdate(tx, context, "planos_assinatura", activation.id, {
+          ativo: activation.ativo,
+          atualizado_em: nowTimestampField(),
+          atualizado_por: uid,
+        });
+        return { planId: activation.id };
+      },
+    });
+  }
+
+  error("internal", "Comando tenant-scoped não suportado.");
+}
+
 async function adminCommand({ uid, action, data, requestId, context }) {
   const incoming = requireObject(data || {});
   if (action === "estudio.identidade.salvar") {
@@ -981,33 +1323,11 @@ async function adminCommand({ uid, action, data, requestId, context }) {
       },
     });
   }
+  if (TENANT_SCOPED_ADMIN_ACTIONS.has(action)) {
+    return tenantScopedAdminCommand({ uid, action, incoming, requestId, context });
+  }
   return transactionalCommand({ operation: `admin.${action}`, actorUid: uid, requestId, execute: async (tx) => {
     await requireAdmin(tx, uid);
-
-    if (action === "funcionamento.salvar") {
-      onlyFields(incoming, new Set(["intervalo_minutos", "periodos_semana", "dias_fechados_semana"]));
-      const weekly = requireObject(incoming.dias_fechados_semana);
-      const days = Object.fromEntries(Array.from({ length: 7 }, (_, day) => [day, Boolean(weekly[day]) ]));
-      if (Number(incoming.intervalo_minutos) !== 30) error("invalid-argument", "INTERVALO_INVALIDO");
-      const periods = validatePeriodsMap(incoming.periodos_semana);
-      mirrorSet(tx, "configuracoes", "funcionamento", { intervalo_minutos: 30, periodos_semana: periods, dias_fechados_semana: days, atualizado_em: nowTimestampField(), atualizado_por: uid }, { merge: true });
-      return { updated: "funcionamento" };
-    }
-
-    if (action === "abertura.salvar") {
-      onlyFields(incoming, new Set(["data", "inicio", "fim", "motivo"]));
-      const date = cleanDate(incoming.data); const inicio = cleanTime(incoming.inicio); const fim = cleanTime(incoming.fim);
-      if (minutes(inicio) >= minutes(fim) || minutes(inicio) % 30 || minutes(fim) % 30) error("invalid-argument", "ABERTURA_INVALIDA");
-      mirrorSet(tx, "fechamentos_globais", `abertura_${date}`, { data: date, tipo: "abertura", inicio_horario: inicio, fim_horario: fim, motivo: cleanText(incoming.motivo || "Abertura excepcional", 240), ativo: true, criado_em: nowTimestampField(), criado_por: uid }, { merge: true });
-      return { openingId: `abertura_${date}` };
-    }
-
-    if (action === "abertura.remover") {
-      onlyFields(incoming, new Set(["data"]));
-      const id = `abertura_${cleanDate(incoming.data)}`;
-      mirrorDelete(tx, "fechamentos_globais", id);
-      return { openingId: id, removed: true };
-    }
 
     if (action === "fechamento.salvar") {
       onlyFields(incoming, new Set(["datas", "inicio", "fim", "motivo", "fechamento_id"]));
@@ -1084,15 +1404,6 @@ async function adminCommand({ uid, action, data, requestId, context }) {
       return { barberId: id, created: !existing.exists };
     }
 
-    if (action === "barbeiro.ativar") {
-      onlyFields(incoming, new Set(["id", "ativo"])); const id = cleanText(incoming.id, 200);
-      const barber = await tx.get(legacyRef("barbeiros", id)); if (!barber.exists) error("not-found", "BARBEIRO_INDISPONIVEL");
-      mirrorUpdate(tx, "barbeiros", id, { ativo: Boolean(incoming.ativo) });
-      const linkedUid = cleanText(barber.get("uid_usuario") || "", 200);
-      if (linkedUid) tx.set(db.doc(`barbearias/${TENANT_ID}/membros/${linkedUid}`), { ativo: Boolean(incoming.ativo), atualizado_em: nowTimestampField() }, { merge: true });
-      return { barberId: id };
-    }
-
     if (action === "barbeiro.remover") {
       onlyFields(incoming, new Set(["id"])); const id = cleanText(incoming.id, 200);
       const barber = await tx.get(legacyRef("barbeiros", id)); if (!barber.exists) return { barberId: id, removed: false };
@@ -1110,49 +1421,6 @@ async function adminCommand({ uid, action, data, requestId, context }) {
         tx.set(memberRef, { barbeiro_id: "", papeis: rolesWithout(member, "BARBEIRO"), ativo: false, atualizado_em: nowTimestampField() }, { merge: true });
       }
       return { barberId: id, removed: true };
-    }
-
-    if (action === "servico.salvar") {
-      onlyFields(incoming, new Set(["id", "nome", "descricao", "duracao", "preco", "ativo"]));
-      const id = cleanText(incoming.id || "", 200) || db.collection("servicos").doc().id;
-      const service = { nome: cleanText(incoming.nome, 160), descricao: cleanText(incoming.descricao || "", 1000), duracao: Number(incoming.duracao), preco: cleanText(incoming.preco, 80), ativo: incoming.ativo !== false };
-      if (!service.nome || !Number.isInteger(service.duracao) || service.duracao < 30 || service.duracao % 30 || !service.preco) error("invalid-argument", "Serviço inválido.");
-      const existing = await tx.get(legacyRef("servicos", id)); mirrorSet(tx, "servicos", id, { ...service, ...(existing.exists ? {} : { criado_em: nowTimestampField() }) }, { merge: existing.exists });
-      return { serviceId: id, created: !existing.exists };
-    }
-
-    if (action === "servico.remover") {
-      onlyFields(incoming, new Set(["id"])); const id = cleanText(incoming.id, 200); mirrorDelete(tx, "servicos", id); return { serviceId: id };
-    }
-
-    if (action === "plano.salvar") {
-      onlyFields(incoming, new Set(["id", "nome", "descricao", "preco_centavos", "preco_definido", "usos_mensais", "servicos_ids", "ativo"]));
-      const id = cleanText(incoming.id || "", 200) || db.collection("planos_assinatura").doc().id;
-      const serviceIds = Array.isArray(incoming.servicos_ids) ? [...new Set(incoming.servicos_ids.map((item) => cleanText(item, 200)))] : [];
-      const price = Number(incoming.preco_centavos); const uses = Number(incoming.usos_mensais);
-      if (!cleanText(incoming.nome, 160) || !cleanText(incoming.descricao, 1000) || !Number.isInteger(price) || price < 0 || !Number.isInteger(uses) || uses < 1 || !serviceIds.length || uses % serviceIds.length) error("invalid-argument", "Plano inválido.");
-      const serviceSnaps = await Promise.all(serviceIds.map((serviceId) => tx.get(legacyRef("servicos", serviceId))));
-      if (serviceSnaps.some((snap) => !snap.exists)) error("failed-precondition", "SERVICO_INDISPONIVEL");
-      const existing = await tx.get(legacyRef("planos_assinatura", id));
-      const plan = { nome: cleanText(incoming.nome, 160), descricao: cleanText(incoming.descricao, 1000), preco_centavos: price, preco_definido: incoming.preco_definido !== false, usos_mensais: uses, servicos_ids: serviceIds, servicos_incluidos: serviceSnaps.map((snap) => cleanText(snap.get("nome"), 160)), ativo: Boolean(incoming.ativo), atualizado_em: nowTimestampField(), atualizado_por: uid, ...(existing.exists ? {} : { criado_em: nowTimestampField(), criado_por: uid }) };
-      mirrorSet(tx, "planos_assinatura", id, plan, { merge: existing.exists }); return { planId: id, created: !existing.exists };
-    }
-
-    if (action === "plano.inicial") {
-      onlyFields(incoming, new Set(["id", "nome", "descricao", "usos_mensais", "servicos_incluidos"]));
-      const id = cleanText(incoming.id, 120);
-      if (!new Set(["essencial", "prime", "premium"]).has(id)) error("invalid-argument", "Plano inicial inválido.");
-      const existing = await tx.get(legacyRef("planos_assinatura", id));
-      if (existing.exists) return { planId: id, created: false };
-      const plan = { nome: cleanText(incoming.nome, 160), descricao: cleanText(incoming.descricao, 1000), usos_mensais: Number(incoming.usos_mensais), servicos_incluidos: Array.isArray(incoming.servicos_incluidos) ? incoming.servicos_incluidos.map((item) => cleanText(item, 160)) : [], servicos_ids: [], preco_centavos: 0, preco_definido: false, ativo: false, criado_em: nowTimestampField(), atualizado_em: nowTimestampField(), criado_por: uid, atualizado_por: uid };
-      if (!plan.nome || !Number.isInteger(plan.usos_mensais) || plan.usos_mensais < 1) error("invalid-argument", "Plano inicial inválido.");
-      mirrorSet(tx, "planos_assinatura", id, plan); return { planId: id, created: true };
-    }
-
-    if (action === "plano.ativar") {
-      onlyFields(incoming, new Set(["id", "ativo"])); const id = cleanText(incoming.id, 200); const plan = await tx.get(legacyRef("planos_assinatura", id)); if (!plan.exists) error("not-found", "PLANO_INDISPONIVEL");
-      if (incoming.ativo === true && (!Number.isInteger(plan.get("preco_centavos")) || plan.get("preco_centavos") <= 0 || !Array.isArray(plan.get("servicos_ids")) || !plan.get("servicos_ids").length)) error("failed-precondition", "PLANO_INDISPONIVEL");
-      mirrorUpdate(tx, "planos_assinatura", id, { ativo: Boolean(incoming.ativo), atualizado_em: nowTimestampField(), atualizado_por: uid }); return { planId: id };
     }
 
     if (action === "assinatura.aprovar" || action === "assinatura.recusar") {

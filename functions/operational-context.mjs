@@ -22,6 +22,15 @@ export const OPERATIONAL_CONTEXT_MODES = Object.freeze({
 export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "agenda.disponibilidade.obter",
   "admin.estudio.identidade.salvar",
+  "admin.funcionamento.salvar",
+  "admin.servico.salvar",
+  "admin.servico.remover",
+  "admin.barbeiro.ativar",
+  "admin.abertura.salvar",
+  "admin.abertura.remover",
+  "admin.plano.ativar",
+  "admin.plano.inicial",
+  "admin.plano.salvar",
 ]);
 
 const DYNAMIC_TENANT_COMMAND_SET = new Set(DYNAMIC_TENANT_COMMANDS);
@@ -29,10 +38,31 @@ const CLIENT_BOOTSTRAP_COMMAND = "cliente.garantir-perfil";
 const ROLE_BY_COMMAND = new Map([
   ["agenda.disponibilidade.obter", "CLIENTE"],
   ["admin.estudio.identidade.salvar", "ADMIN"],
+  ["admin.funcionamento.salvar", "ADMIN"],
+  ["admin.servico.salvar", "ADMIN"],
+  ["admin.servico.remover", "ADMIN"],
+  ["admin.barbeiro.ativar", "ADMIN"],
+  ["admin.abertura.salvar", "ADMIN"],
+  ["admin.abertura.remover", "ADMIN"],
+  ["admin.plano.ativar", "ADMIN"],
+  ["admin.plano.inicial", "ADMIN"],
+  ["admin.plano.salvar", "ADMIN"],
+]);
+const ALWAYS_V2_ONLY_COMMANDS = new Set(["admin.estudio.identidade.salvar"]);
+const HML_ANTUNES_COMPAT_COMMANDS = new Set([
+  "admin.funcionamento.salvar",
+  "admin.servico.salvar",
+  "admin.servico.remover",
+  "admin.barbeiro.ativar",
+  "admin.abertura.salvar",
+  "admin.abertura.remover",
+  "admin.plano.ativar",
+  "admin.plano.inicial",
+  "admin.plano.salvar",
 ]);
 const FORBIDDEN_CLIENT_KEYS = new Set([
   "tenantId", "tenant_id", "path", "documentPath", "collectionPath",
-  "legacyMode", "tenantMode", "writeMode",
+  "legacyMode", "tenantMode", "writeMode", "write_mode",
 ]);
 const LEGACY_FIREBASE_HOSTS = new Map([
   ["barber-a01e7.web.app", "barber-a01e7"],
@@ -197,7 +227,8 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
   const dynamicCommand = DYNAMIC_TENANT_COMMAND_SET.has(command);
 
   if (!locator) {
-    if (dynamicCommand) fail("TENANT_CONTEXT_REQUIRED", "Contexto do estabelecimento obrigatório.");
+    const hmlAntunesCompat = projectId === "teste-483f6" && HML_ANTUNES_COMPAT_COMMANDS.has(command);
+    if (dynamicCommand && !hmlAntunesCompat) fail("TENANT_CONTEXT_REQUIRED", "Contexto do estabelecimento obrigatório.");
     const hmlClientBootstrap = projectId === "teste-483f6" && command === CLIENT_BOOTSTRAP_COMMAND;
     const roles = hmlClientBootstrap
       ? []
@@ -206,7 +237,7 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
         tenantId: ANTUNES_TENANT_ID,
         slug: ANTUNES_TENANT_SLUG,
         authUid,
-        requiredRole: null,
+        requiredRole: hmlAntunesCompat ? ROLE_BY_COMMAND.get(command) : null,
       });
     return immutableContext({
       projectId,
@@ -237,7 +268,7 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
     : await validateTenantAndMembership({ db, ...resolved, authUid, requiredRole });
   const mode = command === "agenda.disponibilidade.obter"
     ? OPERATIONAL_CONTEXT_MODES.READ_ONLY
-    : dynamicCommand
+    : ALWAYS_V2_ONLY_COMMANDS.has(command) || (dynamicCommand && !isAntunes)
       ? OPERATIONAL_CONTEXT_MODES.V2_ONLY
       : OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE;
   return immutableContext({ projectId, command, ...resolved, authUid, roles, mode });

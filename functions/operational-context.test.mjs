@@ -70,6 +70,54 @@ async function identityContext(db, slug, uid) {
   });
 }
 
+const SLICE_2_COMMANDS = Object.freeze([
+  "admin.funcionamento.salvar",
+  "admin.servico.salvar",
+  "admin.servico.remover",
+  "admin.barbeiro.ativar",
+]);
+
+const SLICE_3_COMMANDS = Object.freeze([
+  "admin.abertura.salvar",
+  "admin.abertura.remover",
+  "admin.plano.ativar",
+]);
+
+const SLICE_4_COMMANDS = Object.freeze([
+  "admin.plano.inicial",
+  "admin.plano.salvar",
+]);
+
+const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS]);
+
+const ALL_OPERATIONAL_COMMANDS = Object.freeze([
+  "cliente.garantir-perfil", "cliente.atualizar-perfil", "assinatura.solicitar",
+  "agenda.disponibilidade.obter", "agenda.criar", "agenda.reagendar", "agenda.cliente_chegou",
+  "agenda.em_atendimento", "agenda.concluir", "agenda.cancelar", "agenda.nao_compareceu",
+  "bloqueio.criar", "bloqueio.remover", "admin.funcionamento.salvar", "admin.abertura.salvar",
+  "admin.abertura.remover", "admin.fechamento.salvar", "admin.fechamento.remover",
+  "admin.barbeiro.salvar", "admin.barbeiro.ativar", "admin.barbeiro.remover",
+  "admin.servico.salvar", "admin.servico.remover", "admin.plano.salvar", "admin.plano.inicial",
+  "admin.plano.ativar", "admin.assinatura.aprovar", "admin.assinatura.recusar",
+  "admin.assinatura.renovar", "admin.assinatura.cancelar", "admin.assinatura.expirar",
+  "admin.estudio.identidade.salvar",
+]);
+
+async function adminContext(db, command, slug, uid, data = {}) {
+  return resolveOperationalContext({
+    db,
+    projectId: "barber-a01e7",
+    authUid: uid,
+    command,
+    payload: {
+      command,
+      requestId: `dynamic-${slug}-${command.replaceAll(".", "-")}-0001`,
+      context: { hostname: `${slug}.goestudio.com.br` },
+      data,
+    },
+  });
+}
+
 async function rejectsCode(promise, code) {
   await assert.rejects(promise, (cause) => {
     assert.ok(cause instanceof OperationalContextError);
@@ -82,6 +130,9 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS, [
     "agenda.disponibilidade.obter",
     "admin.estudio.identidade.salvar",
+    ...SLICE_2_COMMANDS,
+    ...SLICE_3_COMMANDS,
+    ...SLICE_4_COMMANDS,
   ]);
   const db = fixture();
   const tenantA = await identityContext(db, "studio-a", "admin-a");
@@ -91,6 +142,129 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
   assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
   assert.deepEqual(tenantA.actor.roles, ["ADMIN", "CLIENTE"]);
+});
+
+test("TENANT_A_COMMANDS_PASS e TENANT_B_COMMANDS_PASS no Slice 2", async () => {
+  const db = fixture();
+  for (const command of SLICE_2_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a");
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b");
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  }
+});
+
+test("TENANT_A_COMMANDS_PASS e TENANT_B_COMMANDS_PASS no Slice 3", async () => {
+  const db = fixture();
+  for (const command of SLICE_3_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a");
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b");
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  }
+});
+
+test("TENANT_A_COMMANDS_PASS e TENANT_B_COMMANDS_PASS no Slice 4", async () => {
+  const db = fixture();
+  for (const command of SLICE_4_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a");
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b");
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  }
+});
+
+test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3 e 4", async () => {
+  const db = new MemoryDb({
+    [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
+    [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
+  });
+  for (const command of MIGRATED_ADMIN_COMMANDS) {
+    const context = await resolveOperationalContext({
+      db,
+      projectId: "barber-a01e7",
+      authUid: "admin-antunes",
+      command,
+      payload: {
+        command,
+        requestId: `dynamic-antunes-${command.replaceAll(".", "-")}-01`,
+        context: { hostname: "barber-a01e7.web.app" },
+        data: {},
+      },
+    });
+    assert.equal(context.tenant.id, ANTUNES_TENANT_ID);
+    assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE);
+  }
+});
+
+test("compatibilidade sem locator fica restrita ao projeto HML e exige ADMIN", async () => {
+  const entries = {
+    [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
+    [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
+    [`barbearias/${ANTUNES_TENANT_ID}/membros/client-antunes`]: { ativo: true, papeis: ["CLIENTE"] },
+  };
+  for (const command of MIGRATED_ADMIN_COMMANDS) {
+    const payload = {
+      command,
+      requestId: `hml-compat-${command.replaceAll(".", "-")}-01`,
+      data: {},
+    };
+    const context = await resolveOperationalContext({
+      db: new MemoryDb(entries),
+      projectId: "teste-483f6",
+      authUid: "admin-antunes",
+      command,
+      payload,
+    });
+    assert.equal(context.tenant.id, ANTUNES_TENANT_ID);
+    assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE);
+    await rejectsCode(resolveOperationalContext({
+      db: new MemoryDb(entries),
+      projectId: "teste-483f6",
+      authUid: "client-antunes",
+      command,
+      payload,
+    }), "MEMBERSHIP_REQUIRED");
+    await rejectsCode(resolveOperationalContext({
+      db: new MemoryDb(entries),
+      projectId: "barber-a01e7",
+      authUid: "admin-antunes",
+      command,
+      payload,
+    }), "TENANT_CONTEXT_REQUIRED");
+  }
+});
+
+test("NON_ADMIN_DENIED nos comandos administrativos migrados", async () => {
+  const db = new MemoryDb(tenantEntries({
+    slug: "studio-a",
+    tenantId: "tenant-a",
+    uid: "client-a",
+    roles: ["CLIENTE"],
+  }));
+  for (const command of MIGRATED_ADMIN_COMMANDS) {
+    await rejectsCode(adminContext(db, command, "studio-a", "client-a"), "MEMBERSHIP_REQUIRED");
+  }
+});
+
+test("CROSS_TENANT_DENIED e INACTIVE_TENANT_DENIED nos comandos migrados", async () => {
+  const crossTenantDb = fixture();
+  const inactiveDb = new MemoryDb(tenantEntries({
+    slug: "studio-a",
+    tenantId: "tenant-a",
+    uid: "admin-a",
+    status: "INACTIVE",
+  }));
+  for (const command of MIGRATED_ADMIN_COMMANDS) {
+    await rejectsCode(adminContext(crossTenantDb, command, "studio-b", "admin-a"), "MEMBERSHIP_REQUIRED");
+    await rejectsCode(adminContext(inactiveDb, command, "studio-a", "admin-a"), "TENANT_UNAVAILABLE");
+  }
 });
 
 test("agenda.disponibilidade.obter resolve slug e exige CLIENTE", async () => {
@@ -122,6 +296,10 @@ test("TENANT_ID_PAYLOAD_REJECTED e path do payload rejeitado", () => {
   );
   assert.throws(
     () => validateOperationalEnvelope({ command: "x", data: { path: "barbearias/tenant-b" } }),
+    (cause) => cause instanceof OperationalContextError && cause.code === "FORBIDDEN_TENANT_OVERRIDE",
+  );
+  assert.throws(
+    () => validateOperationalEnvelope({ command: "x", data: { nested: { write_mode: "V2_ONLY" } } }),
     (cause) => cause instanceof OperationalContextError && cause.code === "FORBIDDEN_TENANT_OVERRIDE",
   );
 });
@@ -183,7 +361,27 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("30 comandos legados preservam compatibilidade Antunes sem localizador", async () => {
+test("OTHER_21_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+  assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
+  const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
+  assert.equal(remaining.length, 21);
+  for (const command of remaining) {
+    await rejectsCode(resolveOperationalContext({
+      db: fixture(),
+      projectId: "barber-a01e7",
+      authUid: "admin-a",
+      command,
+      payload: {
+        command,
+        requestId: `blocked-${command.replaceAll(".", "-")}-0001`,
+        context: { hostname: "studio-a.goestudio.com.br" },
+        data: {},
+      },
+    }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
+  }
+});
+
+test("comando legado preserva compatibilidade Antunes sem localizador", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/legacy-user`]: { ativo: true, papeis: ["CLIENTE"] },

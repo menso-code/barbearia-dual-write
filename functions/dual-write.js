@@ -73,7 +73,7 @@ function mapAgendaAvailabilityError(cause) {
 
 function mapOperationalContextError(cause) {
   if (!(cause instanceof OperationalContextError)) throw cause;
-  if (["INVALID_ARGUMENT", "INVALID_TENANT_LOCATOR", "AMBIGUOUS_TENANT_LOCATOR", "FORBIDDEN_TENANT_OVERRIDE"].includes(cause.code)) {
+  if (["INVALID_ARGUMENT", "INVALID_TENANT_LOCATOR", "AMBIGUOUS_TENANT_LOCATOR", "FORBIDDEN_TENANT_OVERRIDE", "TENANT_NOT_RESOLVED"].includes(cause.code)) {
     error("invalid-argument", cause.message);
   }
   if (cause.code === "TENANT_NOT_FOUND") error("not-found", cause.message);

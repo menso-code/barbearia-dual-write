@@ -1,6 +1,6 @@
 # Migração gradual para múltiplas barbearias
 
-## Estado inicial seguro
+## Estado inicial seguro (histórico)
 
 A Barbearia Antunes permanece como tenant padrão com o ID interno imutável
 `tnt_80b2fda7ad644a1dbeff050aa8e0d595` e slug público `antunes`.
@@ -8,6 +8,16 @@ O módulo `public/js/tenant.js` concentra essa identificação no frontend.
 Nesta fase ele não aceita seleção por URL, armazenamento local ou parâmetros do
 navegador: isso evita que uma alteração de interface seja confundida com uma
 permissão de acesso.
+
+## Estado normativo atual
+
+A migração operacional foi concluída para os 32 comandos. O tenant é resolvido
+no servidor pelo `OperationalContext`; a ausência de hostname/slug falha
+fechado, e a compatibilidade com Antunes ocorre somente por localizadores
+Firebase explicitamente documentados. Novos tenants operam em `V2_ONLY`, sem
+leitura ou escrita legada, enquanto Antunes preserva Dual Write conforme o
+contrato. O histórico de fases abaixo é mantido como registro da evolução e
+não representa um fallback ativo do runtime.
 
 ## Por que a migração não pode ser somente um campo novo
 

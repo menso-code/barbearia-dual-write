@@ -345,42 +345,18 @@ test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6, 7 
   }
 });
 
-test("compatibilidade sem locator fica restrita ao projeto HML e exige ADMIN", async () => {
-  const entries = {
-    [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
-    [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
-    [`barbearias/${ANTUNES_TENANT_ID}/membros/client-antunes`]: { ativo: true, papeis: ["CLIENTE"] },
-  };
-  for (const command of MIGRATED_ADMIN_COMMANDS) {
-    const payload = {
-      command,
-      requestId: `hml-compat-${command.replaceAll(".", "-")}-01`,
-      data: {},
-    };
-    const context = await resolveOperationalContext({
-      db: new MemoryDb(entries),
-      projectId: "teste-483f6",
-      authUid: "admin-antunes",
-      command,
-      payload,
-    });
-    assert.equal(context.tenant.id, ANTUNES_TENANT_ID);
-    assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE);
-    await rejectsCode(resolveOperationalContext({
-      db: new MemoryDb(entries),
-      projectId: "teste-483f6",
-      authUid: "client-antunes",
-      command,
-      payload,
-    }), "MEMBERSHIP_REQUIRED");
-    await rejectsCode(resolveOperationalContext({
-      db: new MemoryDb(entries),
-      projectId: "barber-a01e7",
-      authUid: "admin-antunes",
-      command,
-      payload,
-    }), "TENANT_CONTEXT_REQUIRED");
-  }
+test("ausência de localizador falha fechado também no bootstrap", async () => {
+  await rejectsCode(resolveOperationalContext({
+    db: new MemoryDb({}),
+    projectId: "teste-483f6",
+    authUid: "new-client",
+    command: "cliente.garantir-perfil",
+    payload: {
+      command: "cliente.garantir-perfil",
+      requestId: "hml-bootstrap-no-locator-01",
+      extras: { nome: "Cliente" },
+    },
+  }), "TENANT_NOT_RESOLVED");
 });
 
 test("NON_ADMIN_DENIED nos comandos administrativos migrados", async () => {
@@ -556,7 +532,7 @@ test("agenda migrada exige localizador fora da compatibilidade HML", async () =>
     authUid: "legacy-user",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "legacy-antunes-request-01", data: {} },
-  }), "TENANT_CONTEXT_REQUIRED");
+  }), "TENANT_NOT_RESOLVED");
 });
 
 test("omitir localizador não seleciona Antunes para membro de outro tenant", async () => {
@@ -571,7 +547,7 @@ test("omitir localizador não seleciona Antunes para membro de outro tenant", as
     authUid: "user-b",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "omitted-context-request-01", data: {} },
-  }), "TENANT_CONTEXT_REQUIRED");
+  }), "TENANT_NOT_RESOLVED");
 });
 
 test("host Firebase legado é allowlist exata e identidade continua V2-only", async () => {

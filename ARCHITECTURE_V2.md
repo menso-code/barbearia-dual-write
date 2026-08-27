@@ -1,7 +1,10 @@
 # Arquitetura V2 — Multi-barbearia
 
-**Estado:** definida para revisão; nenhuma coleção atual foi migrada, nenhuma
-regra foi publicada e nenhum fluxo de produção foi redirecionado.
+**Estado:** arquitetura operacional tenant-scoped concluída para os 32
+comandos. O `OperationalContext` resolve o tenant no servidor; novos tenants
+operam em `V2_ONLY` sem I/O legado, e Antunes preserva Dual Write conforme o
+contrato. As seções de fases abaixo preservam o histórico e o desenho de
+transição; não descrevem o estado atual do runtime.
 
 ## 1. Objetivo e princípios
 

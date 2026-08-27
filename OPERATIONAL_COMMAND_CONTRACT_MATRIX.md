@@ -1,5 +1,10 @@
 # Operational Command Contract Matrix
 
+Estado normativo atual: os 32 comandos operacionais resolvem o tenant
+exclusivamente pelo `OperationalContext`. Novos tenants operam em `V2_ONLY`,
+sem leitura ou escrita legada; o ambiente Antunes mantém Dual Write onde
+previsto pelo contrato.
+
 Fonte normativa: `functions/dual-write.js`. O envelope callable é `{ command, requestId, data }`; a autenticação vem de `request.auth.uid`. Em HML, `resolveOperationalUid()` aplica `homologacao_mapeamentos/{authUid}` antes dos comandos operacionais.
 
 | Comando | Dados principais | Papel/identidade | Legado/V2 e atomicidade | Idempotência/erros principais |
@@ -31,7 +36,11 @@ Fonte normativa: `functions/dual-write.js`. O envelope callable é `{ command, r
 
 - HML: Auth UID → `homologacao_mapeamentos` → UID operacional; produção usa o Auth UID diretamente.
 - Administração exige `admins/{uid}` no tenant resolvido.
-- Os comandos mutáveis legados ainda usam um `TENANT_ID` fixo. A leitura `agenda.disponibilidade.obter` resolve o tenant no servidor pelo slug canônico e nunca aceita `tenantId` como autorização.
+- Nenhum comando operacional usa `TENANT_ID` fixo como fonte de contexto. O
+  tenant é resolvido no servidor pelo `OperationalContext`; hostname/slug são
+  apenas localizadores documentados e nunca autorização. Payloads contendo
+  `tenantId`, `tenant_id`, `path`, `writeMode` ou `write_mode` são rejeitados
+  recursivamente.
 - `email_acesso_index` é namespaced por tenant; e-mail igual em tenants distintos não conflita arquiteturalmente.
 - A auditoria estática não encontrou lookup global por e-mail concedendo papel.
 

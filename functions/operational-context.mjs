@@ -279,29 +279,7 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
   const dynamicCommand = DYNAMIC_TENANT_COMMAND_SET.has(command);
 
   if (!locator) {
-    const hmlAntunesCompat = projectId === "teste-483f6" && HML_ANTUNES_COMPAT_COMMANDS.has(command);
-    const hmlClientBootstrap = projectId === "teste-483f6" && command === CLIENT_BOOTSTRAP_COMMAND;
-    const clientBootstrap = command === CLIENT_BOOTSTRAP_COMMAND;
-    if (dynamicCommand && !hmlAntunesCompat && !clientBootstrap) fail("TENANT_CONTEXT_REQUIRED", "Contexto do estabelecimento obrigatório.");
-    const roles = hmlClientBootstrap || clientBootstrap
-      ? []
-      : await validateTenantAndMembership({
-        db,
-        tenantId: ANTUNES_TENANT_ID,
-        slug: ANTUNES_TENANT_SLUG,
-        authUid,
-        requiredRole: hmlAntunesCompat ? ROLE_BY_COMMAND.get(command) : null,
-      });
-    return immutableContext({
-      projectId,
-      command,
-      tenantId: ANTUNES_TENANT_ID,
-      slug: ANTUNES_TENANT_SLUG,
-      source: "LEGACY_COMMAND_COMPAT",
-      authUid,
-      roles,
-      mode: OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE,
-    });
+    fail("TENANT_NOT_RESOLVED", "Contexto do estabelecimento obrigatório.");
   }
 
   const resolved = locator.type === "hostname"

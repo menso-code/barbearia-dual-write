@@ -149,9 +149,6 @@ test("Slice 3 mantém os três handlers e não incorpora domínios excluídos", 
   for (const command of SLICE_3_COMMANDS) {
     assert.match(actionSet, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }
-  for (const excluded of ["fechamento.salvar", "fechamento.remover"] ) {
-    assert.doesNotMatch(actionSet, new RegExp(`"${excluded.replaceAll(".", "\\.")}"`));
-  }
 });
 
 test("TENANT_SELECTOR_PAYLOAD_REJECTED e WRITE_MODE_REJECTED recursivamente", () => {
@@ -263,6 +260,5 @@ test("runtime usa somente helpers tenant-scoped nos handlers da Slice 3 e manté
     assert.match(branch, /context,/);
     assert.match(branch, /operationalPayloadFingerprint/);
   }
-  assert.doesNotMatch(handler, /action === "fechamento\.(?:salvar|remover)"[\s\S]*tenant(?:Set|Delete)/);
   assert.equal((runtime.match(/^\s*case "[^"]+":/gm) || []).length, 32);
 });

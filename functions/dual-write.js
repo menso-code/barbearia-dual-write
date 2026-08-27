@@ -303,6 +303,8 @@ function timeFromMinutes(value) {
 const SLOT_SIZE_MINUTES = 30;
 const MAX_APPOINTMENT_SLOTS = 4;
 const MAX_SERVICE_DURATION_MINUTES = SLOT_SIZE_MINUTES * MAX_APPOINTMENT_SLOTS;
+const MAX_CLOSURE_DATES_ANTUNES = 200;
+const MAX_CLOSURE_DATES_V2 = 366;
 
 function validatedAppointmentDuration(value, message = "Duração inválida.") {
   const total = Number(value);
@@ -316,6 +318,19 @@ function appointmentBlocks(start, duration) {
   const total = validatedAppointmentDuration(duration);
   const initial = minutes(start);
   return Array.from({ length: total / SLOT_SIZE_MINUTES }, (_, index) => timeFromMinutes(initial + index * SLOT_SIZE_MINUTES));
+}
+
+function closureDateLimit(context) {
+  return context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+    ? MAX_CLOSURE_DATES_ANTUNES
+    : MAX_CLOSURE_DATES_V2;
+}
+
+function validateClosureItems(items, context) {
+  if (!items.length || items.length > closureDateLimit(context)) {
+    error("invalid-argument", "FECHAMENTO_LIMITE_EXCEDIDO");
+  }
+  return items;
 }
 
 function occupancyId(barberId, date, time) {
@@ -1151,6 +1166,8 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "barbeiro.remover",
   "abertura.salvar",
   "abertura.remover",
+  "fechamento.salvar",
+  "fechamento.remover",
   "plano.inicial",
   "plano.salvar",
   "plano.ativar",
@@ -1444,6 +1461,69 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
         await requireContextAdmin(tx, uid, context);
         tenantDelete(tx, context, "fechamentos_globais", openingId);
         return { openingId, removed: true };
+      },
+    });
+  }
+
+  if (action === "fechamento.salvar") {
+    onlyFields(incoming, new Set(["datas", "inicio", "fim", "motivo", "fechamento_id"]));
+    const dates = validateClosureItems(
+      Array.isArray(incoming.datas) ? [...new Set(incoming.datas.map(cleanDate))] : [],
+      context,
+    );
+    const closureId = cleanText(incoming.fechamento_id, 200);
+    const start = cleanDate(incoming.inicio);
+    const end = cleanDate(incoming.fim);
+    if (!closureId || end < start) error("invalid-argument", "Fechamento inválido.");
+    const closure = {
+      inicio: start,
+      fim: end,
+      motivo: cleanText(incoming.motivo, 240),
+      tipo: start === end ? "dia" : "periodo",
+      fechamento_id: closureId,
+      ativo: true,
+    };
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ dates, ...closure }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        for (const date of dates) {
+          tenantSet(tx, context, "fechamentos_globais", date, {
+            ...closure,
+            data: date,
+            criado_em: nowTimestampField(),
+            criado_por: uid,
+          });
+        }
+        return { closureId, documents: dates.length };
+      },
+    });
+  }
+
+  if (action === "fechamento.remover") {
+    onlyFields(incoming, new Set(["ids"]));
+    const ids = validateClosureItems(
+      Array.isArray(incoming.ids) ? [...new Set(incoming.ids.map((id) => cleanText(id, 100)))] : [],
+      context,
+    );
+    if (ids.some((id) => !id)) error("invalid-argument", "Fechamento inválido.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ ids }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const snapshots = await Promise.all(ids.map((id) => tx.get(tenantPrimaryRef(context, "fechamentos_globais", id))));
+        snapshots.forEach((snap, index) => {
+          if (snap.exists) tenantDelete(tx, context, "fechamentos_globais", ids[index]);
+        });
+        return { removed: snapshots.filter((snap) => snap.exists).length };
       },
     });
   }
@@ -1770,30 +1850,6 @@ async function adminCommand({ uid, action, data, requestId, context }) {
   }
   return transactionalCommand({ operation: `admin.${action}`, actorUid: uid, requestId, execute: async (tx) => {
     await requireAdmin(tx, uid);
-
-    if (action === "fechamento.salvar") {
-      onlyFields(incoming, new Set(["datas", "inicio", "fim", "motivo", "fechamento_id"]));
-      const dates = Array.isArray(incoming.datas) ? [...new Set(incoming.datas.map(cleanDate))] : [];
-      if (!dates.length || dates.length > 366) error("invalid-argument", "Fechamento inválido.");
-      const closureId = cleanText(incoming.fechamento_id, 200);
-      if (!closureId) error("invalid-argument", "Fechamento inválido.");
-      const start = cleanDate(incoming.inicio); const end = cleanDate(incoming.fim);
-      if (end < start) error("invalid-argument", "Período inválido.");
-      for (const date of dates) mirrorSet(tx, "fechamentos_globais", date, {
-        data: date, inicio: start, fim: end, motivo: cleanText(incoming.motivo, 240), tipo: start === end ? "dia" : "periodo",
-        fechamento_id: closureId, ativo: true, criado_em: nowTimestampField(), criado_por: uid,
-      });
-      return { closureId, documents: dates.length };
-    }
-
-    if (action === "fechamento.remover") {
-      onlyFields(incoming, new Set(["ids"]));
-      const ids = Array.isArray(incoming.ids) ? [...new Set(incoming.ids.map((id) => cleanText(id, 100)))] : [];
-      if (!ids.length || ids.length > 366) error("invalid-argument", "Fechamento inválido.");
-      const snapshots = await Promise.all(ids.map((id) => tx.get(legacyRef("fechamentos_globais", id))));
-      snapshots.forEach((snap, index) => { if (snap.exists) mirrorDelete(tx, "fechamentos_globais", ids[index]); });
-      return { removed: snapshots.filter((snap) => snap.exists).length };
-    }
 
     if (action === "barbeiro.salvar") {
       onlyFields(incoming, new Set(["id", "nome", "foto", "especialidade", "descricao", "uid_usuario", "email_acesso", "ativo", "uid_vinculo_original"]));

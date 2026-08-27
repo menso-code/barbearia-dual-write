@@ -51,7 +51,7 @@ test("orçamento transacional permanece abaixo de 500 writes", () => {
 test("COMMAND_COUNT permanece 32 após a migração da Agenda", () => {
   assert.match(runtime, /case "agenda\.criar":\s*\{[\s\S]*createAppointment\(\{ uid, authUid, data, requestId, context \}\)/);
   assert.match(runtime, /case "agenda\.reagendar":\s*\{[\s\S]*rebookAppointment\(\{ uid, appointmentId, data, requestId, context \}\)/);
-  assert.equal(DYNAMIC_TENANT_COMMANDS.length, 30);
+  assert.equal(DYNAMIC_TENANT_COMMANDS.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes("agenda.criar"), true);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes("agenda.reagendar"), true);
 });

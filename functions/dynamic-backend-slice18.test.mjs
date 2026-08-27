@@ -109,7 +109,7 @@ class AgendaModel {
 test("Slice 18 migra somente criar/reagendar, reutiliza o limite e não contém refs legadas em V2", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selected.includes(command)), selected);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 0);
   const create = sourceBetween("async function createAppointment", "async function rebookAppointment");
   const rebook = sourceBetween("async function rebookAppointment", "async function transitionAppointment");
   for (const handler of [create, rebook]) { assert.match(handler, /context/); assert.match(handler, /tenantPrimaryRef\(context/); assert.doesNotMatch(handler, /legacyRef\(/); }

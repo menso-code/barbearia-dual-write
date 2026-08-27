@@ -92,6 +92,11 @@ const SLICE_5_COMMANDS = Object.freeze([
   "bloqueio.remover",
 ]);
 
+const SLICE_6_COMMANDS = Object.freeze([
+  "agenda.cliente_chegou",
+  "agenda.em_atendimento",
+]);
+
 const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS]);
 
 const ALL_OPERATIONAL_COMMANDS = Object.freeze([
@@ -134,6 +139,7 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS, [
     "agenda.disponibilidade.obter",
     ...SLICE_5_COMMANDS,
+    ...SLICE_6_COMMANDS,
     "admin.estudio.identidade.salvar",
     ...SLICE_2_COMMANDS,
     ...SLICE_3_COMMANDS,
@@ -197,12 +203,24 @@ test("TENANT_A_BLOQUEIO_REMOVE_PASS e TENANT_B_BLOQUEIO_REMOVE_PASS", async () =
   }
 });
 
-test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4 e 5", async () => {
+test("TENANT_A_AGENDA_TRANSITIONS_PASS e TENANT_B_AGENDA_TRANSITIONS_PASS", async () => {
+  const db = fixture();
+  for (const command of SLICE_6_COMMANDS) {
+    const tenantA = await adminContext(db, command, "studio-a", "admin-a", { appointmentId: "appointment-a" });
+    const tenantB = await adminContext(db, command, "studio-b", "admin-b", { appointmentId: "appointment-b" });
+    assert.equal(tenantA.tenant.id, "tenant-a");
+    assert.equal(tenantB.tenant.id, "tenant-b");
+    assert.equal(tenantA.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+    assert.equal(tenantB.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  }
+});
+
+test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5 e 6", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
   });
-  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS]) {
+  for (const command of [...MIGRATED_ADMIN_COMMANDS, ...SLICE_5_COMMANDS, ...SLICE_6_COMMANDS]) {
     const context = await resolveOperationalContext({
       db,
       projectId: "barber-a01e7",
@@ -378,10 +396,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_20_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_18_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 20);
+  assert.equal(remaining.length, 18);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

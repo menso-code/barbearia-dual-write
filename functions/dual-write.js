@@ -601,7 +601,15 @@ async function barberOwnedBy(tx, uid, barberId, context = null) {
   return barber.exists && String(barber.get("uid_usuario") || "") === uid;
 }
 
-async function ensureAppointmentPermission(tx, uid, appointment, action) {
+async function ensureAppointmentPermission(tx, uid, appointment, action, context = null) {
+  if (context) {
+    const member = await tx.get(db.doc(`barbearias/${context.tenant.id}/membros/${uid}`));
+    const roles = member.exists ? memberRoles(member) : [];
+    const admin = roles.includes("ADMIN") || (context.tenant.id === ANTUNES_TENANT_ID && await isAdmin(tx, uid));
+    if (admin) return;
+    if (roles.includes("BARBEIRO") && appointment.barbeiro_id && await barberOwnedBy(tx, uid, appointment.barbeiro_id, context)) return;
+    error("permission-denied", "Permissão insuficiente.");
+  }
   const admin = await isAdmin(tx, uid);
   if (admin) return;
   if (appointment.cliente_id && appointment.cliente_id === uid && ["cancelar"].includes(action)) return;
@@ -817,27 +825,31 @@ async function rebookAppointment({ uid, appointmentId, data, requestId }) {
   });
 }
 
-async function transitionAppointment({ uid, appointmentId, action, requestId }) {
+async function transitionAppointment({ uid, appointmentId, action, requestId, context = null }) {
   const id = cleanText(appointmentId, 300);
   const actions = new Set(["cliente_chegou", "em_atendimento", "concluir", "cancelar", "nao_compareceu"]);
   if (!actions.has(action)) error("invalid-argument", "Ação inválida.");
+  const requestFingerprint = operationalPayloadFingerprint({ appointmentId: id });
   return transactionalCommand({
     operation: `agenda.${action}`,
     actorUid: uid,
     requestId,
+    context,
+    requestFingerprint,
     execute: async (tx) => {
-      const appointmentRef = legacyRef("agendamentos", id);
+      const appointmentRef = context ? tenantPrimaryRef(context, "agendamentos", id) : legacyRef("agendamentos", id);
       const appointmentSnap = await tx.get(appointmentRef);
       if (!appointmentSnap.exists) error("not-found", "AGENDAMENTO_INDISPONIVEL");
       const appointment = appointmentSnap.data();
-      await ensureAppointmentPermission(tx, uid, appointment, action === "cancelar" ? "cancelar" : "atender");
+      await ensureAppointmentPermission(tx, uid, appointment, action === "cancelar" ? "cancelar" : "atender", context);
       const active = ["agendado", "cliente_chegou", "em_atendimento"];
       if (!active.includes(appointment.status)) error("failed-precondition", "AGENDAMENTO_INDISPONIVEL");
       if (action === "cliente_chegou" || action === "em_atendimento") {
         if (action === "cliente_chegou" && appointment.status !== "agendado") error("failed-precondition", "AGENDAMENTO_INDISPONIVEL");
         if (action === "em_atendimento" && appointment.status !== "cliente_chegou") error("failed-precondition", "AGENDAMENTO_INDISPONIVEL");
         const patch = action === "cliente_chegou" ? { status: action, checked_in_at: nowTimestampField() } : { status: action, started_at: nowTimestampField() };
-        mirrorUpdate(tx, "agendamentos", id, patch);
+        if (context) tenantUpdate(tx, context, "agendamentos", id, patch);
+        else mirrorUpdate(tx, "agendamentos", id, patch);
         return { appointmentId: id, status: action };
       }
       const duration = Number(appointment.duracao || 30);
@@ -1548,7 +1560,10 @@ async function dispatch(request) {
       return rebookAppointment({ uid, appointmentId, data, requestId });
     }
     case "agenda.cliente_chegou":
-    case "agenda.em_atendimento":
+    case "agenda.em_atendimento": {
+      const data = extractCommandData(payload);
+      return transitionAppointment({ uid, appointmentId: requireAppointmentId(data), action: command.replace("agenda.", ""), requestId, context });
+    }
     case "agenda.concluir":
     case "agenda.cancelar":
     case "agenda.nao_compareceu": {

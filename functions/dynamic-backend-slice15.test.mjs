@@ -120,7 +120,7 @@ function seedAgenda(model, mode, tenantId, status = "agendado") {
 test("Slice 15 registers exactly the three final agenda transitions and preserves the tenant-scoped runtime", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selected.includes(command)), selected);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
   const transition = sourceBetween("async function transitionAppointment", "async function createBlock");
   assert.match(transition, /tenantPrimaryRef\(context, "agendamentos", id\)/);
   assert.match(transition, /tenantPrimaryRef\(context, "solicitacoes_assinatura", subscriptionId\)/);
@@ -177,12 +177,12 @@ test("ANTUNES_DUAL_WRITE, NEW_TENANT_ZERO_LEGACY_IO, replay isolation and transa
   assert.equal(rollback.read(OPERATIONAL_CONTEXT_MODES.V2_ONLY, "tenant-a", "solicitacoes_assinatura", "subscription-1").creditos_mensais.corte.restantes, 2);
 });
 
-test("WRITE_MODE_REJECTED_RECURSIVELY, INVALID_STATUS_FAIL_CLOSED and OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("WRITE_MODE_REJECTED_RECURSIVELY, INVALID_STATUS_FAIL_CLOSED and OTHER_2_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
   for (const payload of [{ data: { tenantId: "tenant-b" } }, { data: { nested: { write_mode: "legacy" } } }, { data: { path: "agendamentos/x" } }]) {
     assert.throws(() => validateOperationalEnvelope({ command: "agenda.cancelar", requestId: "request-1", ...payload }), (cause) => cause?.code === "FORBIDDEN_TENANT_OVERRIDE");
   }
   const model = new AgendaFinalModel();
   seedAgenda(model, OPERATIONAL_CONTEXT_MODES.V2_ONLY, "tenant-a", "concluido");
   assert.throws(() => model.transition({ mode: OPERATIONAL_CONTEXT_MODES.V2_ONLY, tenantId: "tenant-a", uid: "admin-a", roles: ["ADMIN"], action: "cancelar", requestId: "invalid-state" }), /AGENDAMENTO_INDISPONIVEL/);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
 });

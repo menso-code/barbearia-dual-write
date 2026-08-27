@@ -118,7 +118,7 @@ class BarberModel {
 test("Slice 16 registers only barber save/remove and uses tenant-scoped index, link and membership helpers", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selected.includes(command)), selected);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
   const handlers = sourceBetween('if (action === "barbeiro.salvar")', 'if (action === "abertura.salvar")');
   assert.match(handlers, /await requireContextAdmin\(tx, uid, context\)/);
   assert.match(handlers, /emailAccessIndexPath\(context, barber\.email_acesso\)/);
@@ -169,11 +169,11 @@ test("SAVE_ATOMIC, REMOVE_ATOMIC, replay safety and tenant-scoped request IDs", 
   assert.ok(model.v2Read("tenant-b", "barbeiros", "barber-1"));
 });
 
-test("ADMIN_AUTH, recursive selector rejection and OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("ADMIN_AUTH, recursive selector rejection and OTHER_2_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
   const model = new BarberModel();
   assert.throws(() => model.save({ mode: OPERATIONAL_CONTEXT_MODES.V2_ONLY, tenantId: "tenant-a", roles: ["BARBEIRO"], requestId: "non-admin" }), /ADMIN_REQUIRED/);
   for (const payload of [{ data: { tenantId: "tenant-b" } }, { data: { nested: { tenant_id: "tenant-b", write_mode: "legacy" } } }, { data: { path: "barbeiros/x" } }]) {
     assert.throws(() => validateOperationalEnvelope({ command: "admin.barbeiro.salvar", requestId: "request-1", ...payload }), (cause) => cause?.code === "FORBIDDEN_TENANT_OVERRIDE");
   }
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
 });

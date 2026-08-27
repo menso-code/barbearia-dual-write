@@ -300,11 +300,22 @@ function timeFromMinutes(value) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+const SLOT_SIZE_MINUTES = 30;
+const MAX_APPOINTMENT_SLOTS = 4;
+const MAX_SERVICE_DURATION_MINUTES = SLOT_SIZE_MINUTES * MAX_APPOINTMENT_SLOTS;
+
+function validatedAppointmentDuration(value, message = "Duração inválida.") {
+  const total = Number(value);
+  if (!Number.isInteger(total) || total < SLOT_SIZE_MINUTES || total % SLOT_SIZE_MINUTES !== 0 || total > MAX_SERVICE_DURATION_MINUTES) {
+    error("invalid-argument", message);
+  }
+  return total;
+}
+
 function appointmentBlocks(start, duration) {
-  const total = Number(duration);
-  if (!Number.isInteger(total) || total < 30 || total % 30 !== 0) error("invalid-argument", "Duração inválida.");
+  const total = validatedAppointmentDuration(duration);
   const initial = minutes(start);
-  return Array.from({ length: total / 30 }, (_, index) => timeFromMinutes(initial + index * 30));
+  return Array.from({ length: total / SLOT_SIZE_MINUTES }, (_, index) => timeFromMinutes(initial + index * SLOT_SIZE_MINUTES));
 }
 
 function occupancyId(barberId, date, time) {
@@ -715,7 +726,7 @@ function tenantMemberRef(context, uid) {
   return db.doc(`barbearias/${context.tenant.id}/membros/${uid}`);
 }
 
-async function createAppointment({ uid, authUid, data, requestId }) {
+async function createAppointment({ uid, authUid, data, requestId, context }) {
   const incoming = requireObject(data);
   const barberId = cleanText(incoming.barbeiro_id, 200);
   const serviceId = cleanText(incoming.servico_id, 200);
@@ -728,25 +739,36 @@ async function createAppointment({ uid, authUid, data, requestId }) {
   const source = cleanText(incoming.origem || "cliente", 80);
   const isSubscription = source === "assinatura";
   const id = `${barberId}_${date}_${time}`;
+  const requestFingerprint = operationalPayloadFingerprint({
+    barberId, serviceId, date, time, clientId, source,
+    subscriptionId: cleanText(incoming.assinatura_id || "", 260),
+    creditType: cleanText(incoming.assinatura_credito_tipo || "", 200),
+    clientName: cleanText(incoming.cliente_nome || "", 120),
+    clientWhatsapp: cleanPhone(incoming.cliente_whatsapp || ""),
+  });
   return transactionalCommand({
     operation: "agenda.criar",
     actorUid: uid,
     requestId,
+    context,
+    requestFingerprint,
     execute: async (tx) => {
-      const barberRef = legacyRef("barbeiros", barberId);
-      const serviceRef = legacyRef("servicos", serviceId);
-      const clientRef = clientId ? legacyRef("clientes", clientId) : null;
-      const configRef = legacyRef("configuracoes", "funcionamento");
-      const closeRef = legacyRef("fechamentos_globais", date);
-      const openingRef = legacyRef("fechamentos_globais", `abertura_${date}`);
-      const appointmentRef = legacyRef("agendamentos", id);
+      const ref = (collection, refId) => tenantPrimaryRef(context, collection, refId);
+      const barberRef = ref("barbeiros", barberId);
+      const serviceRef = ref("servicos", serviceId);
+      const clientRef = clientId ? ref("clientes", clientId) : null;
+      const configRef = ref("configuracoes", "funcionamento");
+      const closeRef = ref("fechamentos_globais", date);
+      const openingRef = ref("fechamentos_globais", `abertura_${date}`);
+      const appointmentRef = ref("agendamentos", id);
       const [barberSnap, serviceSnap, clientSnap, configSnap, closeSnap, openingSnap, existingSnap] = await Promise.all([
         tx.get(barberRef), tx.get(serviceRef), clientRef ? tx.get(clientRef) : Promise.resolve(null), tx.get(configRef), tx.get(closeRef), tx.get(openingRef), tx.get(appointmentRef),
       ]);
       if (!barberSnap.exists || barberSnap.get("ativo") === false) error("failed-precondition", "BARBEIRO_INDISPONIVEL");
       if (!serviceSnap.exists || serviceSnap.get("ativo") === false) error("failed-precondition", "SERVICO_INDISPONIVEL");
-      const isAdminUser = await isAdmin(tx, uid);
-      const isOwnBarber = await barberOwnedBy(tx, uid, barberId);
+      const roles = context.actor.roles;
+      const isAdminUser = roles.includes("ADMIN") && (context.tenant.id !== ANTUNES_TENANT_ID || await isAdmin(tx, uid));
+      const isOwnBarber = roles.includes("BARBEIRO") && await barberOwnedBy(tx, uid, barberId, context);
       if (clientId && clientId !== uid && !isAdminUser && !isOwnBarber) error("permission-denied", "Permissão insuficiente.");
       if (!clientId && !isAdminUser && !isOwnBarber) error("permission-denied", "Permissão insuficiente.");
       if (clientId && !clientSnap?.exists) error("failed-precondition", "CLIENTE_INDISPONIVEL");
@@ -762,7 +784,7 @@ async function createAppointment({ uid, authUid, data, requestId }) {
       const slots = appointmentBlocks(time, duration);
       const validSlots = validBarberSlots(barber, date, configSnap.data(), opening ? { tipo: "abertura", periods: opening } : null);
       if (slots.some((slot) => !validSlots.has(slot))) error("failed-precondition", "HORARIO_INDISPONIVEL");
-      const occupancyRefs = slots.map((slot) => legacyRef("ocupacoes", occupancyId(barberId, date, slot)));
+      const occupancyRefs = slots.map((slot) => ref("ocupacoes", occupancyId(barberId, date, slot)));
       const occupancySnapshots = await Promise.all(occupancyRefs.map((ref) => tx.get(ref)));
       if (occupancySnapshots.some((snap) => snap.exists)) error("already-exists", "HORARIO_OCUPADO");
 
@@ -773,7 +795,7 @@ async function createAppointment({ uid, authUid, data, requestId }) {
         subscriptionId = cleanText(incoming.assinatura_id, 260);
         creditType = cleanText(incoming.assinatura_credito_tipo, 200);
         if (!clientId || !subscriptionId || creditType !== serviceId) error("failed-precondition", "CREDITO_INDISPONIVEL");
-        const subscriptionRef = legacyRef("solicitacoes_assinatura", subscriptionId);
+        const subscriptionRef = ref("solicitacoes_assinatura", subscriptionId);
         const subscriptionSnap = await tx.get(subscriptionRef);
         const current = subscriptionSnap.data();
         const dueAt = current?.vencimento_em?.toDate?.();
@@ -802,11 +824,11 @@ async function createAppointment({ uid, authUid, data, requestId }) {
         criado_em: nowTimestampField(),
         ...(subscription ? { assinatura_id: subscriptionId, assinatura_plano_id: subscription.data.plano_id, assinatura_credito_tipo: creditType, credito_assinatura_reservado: true } : {}),
       };
-      mirrorSet(tx, "agendamentos", id, appointment);
-      slots.forEach((slot) => mirrorSet(tx, "ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, agendamento_id: id, criado_em: nowTimestampField() }));
+      tenantSet(tx, context, "agendamentos", id, appointment);
+      slots.forEach((slot) => tenantSet(tx, context, "ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, agendamento_id: id, criado_em: nowTimestampField() }));
       if (subscription) {
         const credits = creditsUpdated(subscription.data.creditos_mensais, creditType, { reservados: 1 });
-        mirrorUpdate(tx, "solicitacoes_assinatura", subscriptionId, { creditos_mensais: credits, ultima_reserva_agendamento_id: id, ultima_reserva_em: nowTimestampField() });
+        tenantUpdate(tx, context, "solicitacoes_assinatura", subscriptionId, { creditos_mensais: credits, ultima_reserva_agendamento_id: id, ultima_reserva_em: nowTimestampField() });
       }
       return { appointmentId: id, slots: slots.length };
     },
@@ -815,20 +837,26 @@ async function createAppointment({ uid, authUid, data, requestId }) {
 
 // Reagendamento é um único comando: a nova vaga e o cancelamento da antiga
 // nunca ficam visíveis isoladamente para as duas projeções.
-async function rebookAppointment({ uid, appointmentId, data, requestId }) {
+async function rebookAppointment({ uid, appointmentId, data, requestId, context }) {
   const originalId = cleanText(appointmentId, 300);
   const incoming = requireObject(data);
   onlyFields(incoming, new Set(["servico_id", "data", "horario", "cliente_nome", "cliente_whatsapp"]));
   const date = cleanDate(incoming.data);
   const time = cleanTime(incoming.horario);
   const serviceId = cleanText(incoming.servico_id, 200);
+  const requestFingerprint = operationalPayloadFingerprint({
+    appointmentId: originalId, serviceId, date, time,
+    clientName: cleanText(incoming.cliente_nome || "", 120),
+    clientWhatsapp: cleanPhone(incoming.cliente_whatsapp || ""),
+  });
   return transactionalCommand({
-    operation: "agenda.reagendar", actorUid: uid, requestId,
+    operation: "agenda.reagendar", actorUid: uid, requestId, context, requestFingerprint,
     execute: async (tx) => {
-      const originalSnap = await tx.get(legacyRef("agendamentos", originalId));
+      const ref = (collection, refId) => tenantPrimaryRef(context, collection, refId);
+      const originalSnap = await tx.get(ref("agendamentos", originalId));
       if (!originalSnap.exists) error("not-found", "AGENDAMENTO_INDISPONIVEL");
       const original = originalSnap.data();
-      await ensureAppointmentPermission(tx, uid, original, "atender");
+      await ensureAppointmentPermission(tx, uid, original, "atender", context);
       if (!["agendado", "cliente_chegou"].includes(original.status)) error("failed-precondition", "AGENDAMENTO_INDISPONIVEL");
       if (original.origem === "assinatura" && serviceId !== original.servico_id) error("failed-precondition", "SERVICO_ASSINATURA_INALTERAVEL");
       const barberId = original.barbeiro_id;
@@ -836,8 +864,8 @@ async function rebookAppointment({ uid, appointmentId, data, requestId }) {
       if (newId === originalId) error("failed-precondition", "AGENDAMENTO_SEM_ALTERACAO");
       const oldSlots = appointmentBlocks(original.horario, Number(original.duracao || 30));
       const refs = {
-        barber: legacyRef("barbeiros", barberId), service: legacyRef("servicos", serviceId), config: legacyRef("configuracoes", "funcionamento"),
-        closure: legacyRef("fechamentos_globais", date), opening: legacyRef("fechamentos_globais", `abertura_${date}`), target: legacyRef("agendamentos", newId),
+        barber: ref("barbeiros", barberId), service: ref("servicos", serviceId), config: ref("configuracoes", "funcionamento"),
+        closure: ref("fechamentos_globais", date), opening: ref("fechamentos_globais", `abertura_${date}`), target: ref("agendamentos", newId),
       };
       const [barberSnap, serviceSnap, configSnap, closureSnap, openingSnap, targetSnap] = await Promise.all([
         tx.get(refs.barber), tx.get(refs.service), tx.get(refs.config), tx.get(refs.closure), tx.get(refs.opening), tx.get(refs.target),
@@ -850,7 +878,7 @@ async function rebookAppointment({ uid, appointmentId, data, requestId }) {
       const duration = Number(serviceSnap.get("duracao") || original.duracao || 30);
       const newSlots = appointmentBlocks(time, duration);
       if (newSlots.some((slot) => !validBarberSlots(barberSnap.data(), date, configSnap.data(), opening ? { tipo: "abertura", periods: opening } : null).has(slot))) error("failed-precondition", "HORARIO_INDISPONIVEL");
-      const occupancyRefs = newSlots.map((slot) => legacyRef("ocupacoes", occupancyId(barberId, date, slot)));
+      const occupancyRefs = newSlots.map((slot) => ref("ocupacoes", occupancyId(barberId, date, slot)));
       const occupancySnaps = await Promise.all(occupancyRefs.map((ref) => tx.get(ref)));
       if (occupancySnaps.some((snap) => snap.exists && snap.get("agendamento_id") !== originalId)) error("already-exists", "HORARIO_OCUPADO");
       const replacement = {
@@ -860,13 +888,13 @@ async function rebookAppointment({ uid, appointmentId, data, requestId }) {
         ...(original.cliente_id ? {} : { cliente_nome: cleanText(incoming.cliente_nome || original.cliente_nome, 120), cliente_whatsapp: cleanPhone(incoming.cliente_whatsapp || original.cliente_whatsapp || "") }),
       };
       delete replacement.id;
-      mirrorSet(tx, "agendamentos", newId, replacement);
-      mirrorUpdate(tx, "agendamentos", originalId, { status: "cancelado", cancelado_em: nowTimestampField(), reagendado_para: newId, credito_liberado_por_reagendamento: false });
+      tenantSet(tx, context, "agendamentos", newId, replacement);
+      tenantUpdate(tx, context, "agendamentos", originalId, { status: "cancelado", cancelado_em: nowTimestampField(), reagendado_para: newId, credito_liberado_por_reagendamento: false });
       oldSlots.forEach((slot) => {
         const oldOccupancyId = occupancyId(original.barbeiro_id, original.data, slot);
-        if (!newSlots.includes(slot) || original.data !== date) mirrorDelete(tx, "ocupacoes", oldOccupancyId);
+        if (!newSlots.includes(slot) || original.data !== date) tenantDelete(tx, context, "ocupacoes", oldOccupancyId);
       });
-      newSlots.forEach((slot) => mirrorSet(tx, "ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, agendamento_id: newId, criado_em: nowTimestampField() }));
+      newSlots.forEach((slot) => tenantSet(tx, context, "ocupacoes", occupancyId(barberId, date, slot), { barbeiro_id: barberId, data: date, horario: slot, agendamento_id: newId, criado_em: nowTimestampField() }));
       return { appointmentId: newId, replacedAppointmentId: originalId, slots: newSlots.length };
     },
   });
@@ -1176,9 +1204,10 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
       preco: cleanText(incoming.preco, 80),
       ativo: incoming.ativo !== false,
     };
-    if (!service.nome || !Number.isInteger(service.duracao) || service.duracao < 30 || service.duracao % 30 || !service.preco) {
+    if (!service.nome || !service.preco) {
       error("invalid-argument", "Serviço inválido.");
     }
+    validatedAppointmentDuration(service.duracao, "Serviço inválido.");
     return transactionalCommand({
       operation: `admin.${action}`,
       actorUid: uid,
@@ -1930,11 +1959,11 @@ async function dispatch(request) {
     }
     case "agenda.criar": {
       const data = extractCommandData(payload);
-      return createAppointment({ uid, authUid, data, requestId });
+      return createAppointment({ uid, authUid, data, requestId, context });
     }
     case "agenda.reagendar": {
       const { appointmentId, data } = extractRebookCommand(payload);
-      return rebookAppointment({ uid, appointmentId, data, requestId });
+      return rebookAppointment({ uid, appointmentId, data, requestId, context });
     }
     case "agenda.cliente_chegou":
     case "agenda.em_atendimento": {

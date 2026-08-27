@@ -108,6 +108,10 @@ const SLICE_16_COMMANDS = Object.freeze([
 const SLICE_17_COMMANDS = Object.freeze([
   "cliente.garantir-perfil",
 ]);
+const SLICE_18_COMMANDS = Object.freeze([
+  "agenda.criar",
+  "agenda.reagendar",
+]);
 
 const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
@@ -186,6 +190,7 @@ async function rejectsCode(promise, code) {
 test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS, [
     "agenda.disponibilidade.obter",
+    ...SLICE_18_COMMANDS,
     ...SLICE_7_COMMANDS,
     ...SLICE_5_COMMANDS,
     ...SLICE_6_COMMANDS,
@@ -482,9 +487,9 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
     db,
     projectId: "barber-a01e7",
     authUid: "admin-a",
-    command: "agenda.criar",
+    command: "admin.fechamento.salvar",
     payload: {
-      command: "agenda.criar",
+      command: "admin.fechamento.salvar",
       requestId: "legacy-command-request-0001",
       context: { hostname: "studio-a.goestudio.com.br" },
       data: {},
@@ -492,10 +497,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_2_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 4);
+  assert.equal(remaining.length, 2);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),
@@ -555,20 +560,18 @@ test("CLIENT_BOOTSTRAP fails closed for inactive and unknown tenants", async () 
   await rejectsCode(bootstrap("unknown.goestudio.com.br"), "TENANT_NOT_FOUND");
 });
 
-test("comando legado preserva compatibilidade Antunes sem localizador", async () => {
+test("agenda migrada exige localizador fora da compatibilidade HML", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/legacy-user`]: { ativo: true, papeis: ["CLIENTE"] },
   });
-  const context = await resolveOperationalContext({
+  await rejectsCode(resolveOperationalContext({
     db,
     projectId: "barber-a01e7",
     authUid: "legacy-user",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "legacy-antunes-request-01", data: {} },
-  });
-  assert.equal(context.tenant.id, ANTUNES_TENANT_ID);
-  assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE);
+  }), "TENANT_CONTEXT_REQUIRED");
 });
 
 test("omitir localizador não seleciona Antunes para membro de outro tenant", async () => {
@@ -583,7 +586,7 @@ test("omitir localizador não seleciona Antunes para membro de outro tenant", as
     authUid: "user-b",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "omitted-context-request-01", data: {} },
-  }), "MEMBERSHIP_REQUIRED");
+  }), "TENANT_CONTEXT_REQUIRED");
 });
 
 test("host Firebase legado é allowlist exata e identidade continua V2-only", async () => {

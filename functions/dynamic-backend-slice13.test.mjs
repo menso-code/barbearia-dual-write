@@ -114,7 +114,7 @@ function seedValid(model, mode, tenantId, status = "EXPIRADA") {
 test("Slice 13 registra somente admin.assinatura.renovar e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 4);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 2);
   const handler = sourceBetween('if (action === "assinatura.renovar")', 'error("internal"');
   assert.match(handler, /requireContextAdmin\(tx, uid, context\)/);
   assert.match(handler, /tenantPrimaryRef\(context, "solicitacoes_assinatura", id\)/);
@@ -166,10 +166,10 @@ test("CREDITOS_MENSAIS_RECOMPOSTOS sem escrita financeira ou de agenda", () => {
   assert.equal(model.io.every(({ key }) => !/financeiro|agendamentos/.test(key)), true);
 });
 
-test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_2_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 4);
+  assert.equal(remaining.length, 2);
   assert.equal(remaining.includes(command), false);
-  assert.equal(remaining.includes("agenda.criar"), true);
+  assert.equal(remaining.includes("agenda.criar"), false);
   assert.equal(allCommands.length, 32);
 });

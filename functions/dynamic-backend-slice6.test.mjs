@@ -121,7 +121,7 @@ const appointment = { cliente_id: "client-a", barbeiro_id: "barber-a", status: "
 test("Slice 6 mantém suas transições tenant-scoped após a Slice 15", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selectedCommands.includes(command)), selectedCommands);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 2);
   const selectedCase = sourceBetween('case "agenda.cliente_chegou"', 'case "bloqueio.criar"');
   assert.match(selectedCase, /requestId, context/);
   assert.match(selectedCase, /case "agenda\.concluir"/);
@@ -225,10 +225,10 @@ test("ROLLBACK_ON_FAILURE preserva o agendamento", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("OTHER_2_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
   const remaining = allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 4);
-  assert.equal(remaining.includes("agenda.criar"), true);
+  assert.equal(remaining.length, 2);
+  assert.equal(remaining.includes("agenda.criar"), false);
   assert.equal(remaining.includes("admin.assinatura.recusar"), false);
   assert.equal(remaining.includes("bloqueio.criar"), false);
 });

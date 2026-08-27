@@ -133,6 +133,26 @@ export function deriveAgendaAvailability({ data: rawDate, config, closure, openi
   return result(data, false, periods, AGENDA_AVAILABILITY_CODES.AVAILABLE);
 }
 
+export async function getTenantAgendaAvailability({ db, tenantId: rawTenantId, data: rawDate }) {
+  if (!db?.doc) fail("INVALID_ADAPTER", "Serviço indisponível.");
+  const tenantId = String(rawTenantId ?? "").trim();
+  if (!tenantId || tenantId.length > 200 || tenantId.includes("/")) {
+    fail("TENANT_UNAVAILABLE", "Estabelecimento indisponível.");
+  }
+  const data = normalizeDate(rawDate);
+  const [configSnapshot, closureSnapshot, openingSnapshot] = await Promise.all([
+    db.doc(`barbearias/${tenantId}/configuracoes/funcionamento`).get(),
+    db.doc(`barbearias/${tenantId}/fechamentos/${data}`).get(),
+    db.doc(`barbearias/${tenantId}/fechamentos/abertura_${data}`).get(),
+  ]);
+  return deriveAgendaAvailability({
+    data,
+    config: snapshotData(configSnapshot),
+    closure: snapshotData(closureSnapshot),
+    opening: snapshotData(openingSnapshot),
+  });
+}
+
 function requireClientMembership(snapshot) {
   const member = snapshotData(snapshot);
   if (
@@ -188,15 +208,5 @@ export async function getDerivedAgendaAvailability({ db, slug: rawSlug, uid, dat
   const membershipSnapshot = await db.doc(`barbearias/${tenantId}/membros/${actorUid}`).get();
   requireClientMembership(membershipSnapshot);
 
-  const [configSnapshot, closureSnapshot, openingSnapshot] = await Promise.all([
-    db.doc(`barbearias/${tenantId}/configuracoes/funcionamento`).get(),
-    db.doc(`barbearias/${tenantId}/fechamentos/${data}`).get(),
-    db.doc(`barbearias/${tenantId}/fechamentos/abertura_${data}`).get(),
-  ]);
-  return deriveAgendaAvailability({
-    data,
-    config: snapshotData(configSnapshot),
-    closure: snapshotData(closureSnapshot),
-    opening: snapshotData(openingSnapshot),
-  });
+  return getTenantAgendaAvailability({ db, tenantId, data });
 }

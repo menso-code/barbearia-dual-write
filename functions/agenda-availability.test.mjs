@@ -4,6 +4,7 @@ import {
   AGENDA_AVAILABILITY_CODES,
   AgendaAvailabilityError,
   getDerivedAgendaAvailability,
+  getTenantAgendaAvailability,
 } from "./agenda-availability.mjs";
 
 class MemorySnapshot {
@@ -87,6 +88,19 @@ test("VALID_CLIENT_CAN_GET_DERIVED_AVAILABILITY", async () => {
     effectiveOpenPeriods: [{ inicio: "09:00", fim: "18:00" }],
     publicMessageCode: AGENDA_AVAILABILITY_CODES.AVAILABLE,
   });
+});
+
+test("TENANT_SCOPED_AVAILABILITY_READ usa somente o tenant resolvido", async () => {
+  const db = new ReadOnlyMemoryDb({
+    "barbearias/tenant-b/configuracoes/funcionamento": {
+      dias_fechados_semana: { 0: false },
+      periodos_semana: { 1: [{ inicio: "10:00", fim: "17:00" }] },
+    },
+  });
+  const result = await getTenantAgendaAvailability({ db, tenantId: "tenant-b", data: "2026-08-24" });
+  assert.deepEqual(result.effectiveOpenPeriods, [{ inicio: "10:00", fim: "17:00" }]);
+  assert.equal(db.reads.every((path) => path.startsWith("barbearias/tenant-b/")), true);
+  assert.equal(db.reads.some((path) => path.includes("tenant-a")), false);
 });
 
 test("NON_MEMBER_REJECTED", async () => {

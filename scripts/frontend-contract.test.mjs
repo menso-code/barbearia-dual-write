@@ -22,6 +22,13 @@ const customersCss = await read("public/css/admin-customers.css");
 const studioSettings = await read("public/js/admin-studio-settings.js");
 const studioSettingsCore = await read("public/js/admin-studio-settings-core.mjs");
 const studioSettingsCss = await read("public/css/admin-studio-settings.css");
+const operationalCommands = await read("public/js/operational-commands.js");
+
+assert.match(operationalCommands, /globalThis\.location\?\.hostname/);
+assert.match(operationalCommands, /context: \{ hostname \}/);
+assert.match(operationalCommands, /commandName !== "agenda\.disponibilidade\.obter"/);
+assert.doesNotMatch(operationalCommands, /tenantId\s*:/);
+assert.match(operationalCommands, /OPERATIONAL_CONTEXT_IS_RUNTIME_DERIVED/);
 
 assert.match(agenda, /agenda\.cancelar", \{ data: \{ appointmentId: agendamento\.id \} \}/);
 assert.match(agenda, /agenda\.concluir", \{ data: \{ appointmentId: agendamento\.id \} \}/);

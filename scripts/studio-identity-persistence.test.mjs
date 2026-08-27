@@ -21,10 +21,14 @@ const validIdentity = {
 };
 
 assert.match(runtime, /case "admin\.estudio\.identidade\.salvar"/);
-assert.match(runtime, /function tenantConfigRef\(tenantId, id\)[\s\S]*barbearias\/\$\{tenantId\}\/configuracoes\/\$\{id\}/);
+assert.match(runtime, /v2Ref\(context, "configuracoes", STUDIO_IDENTITY_ID\)/);
+assert.match(runtime, /context\.tenant\.id/);
+assert.match(runtime, /requireTenantAdminMembership\(tx, uid, context\.tenant\.id\)/);
+assert.match(runtime, /operationalPayloadFingerprint\(identity\)/);
 assert.match(runtime, /updatedAt: nowTimestampField\(\)/);
 assert.match(runtime, /updatedBy: uid/);
 assert.doesNotMatch(runtime, /mirror(?:Set|Update)\(tx, "configuracoes", "identidade"/);
+assert.doesNotMatch(runtime, /const resolvedTenantId = TENANT_ID/);
 assert.deepEqual(new Set(STUDIO_IDENTITY_FIELDS), new Set(Object.keys(validIdentity)));
 assert.equal(STUDIO_IDENTITY_FIELDS.includes("favicon"), false);
 

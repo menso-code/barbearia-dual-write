@@ -143,9 +143,10 @@ test("agenda.disponibilidade.obter permanece read-only e fora do log de idempotÃ
   const end = runtime.indexOf('case "agenda.criar"', start);
   const commandBody = runtime.slice(start, end);
   assert.ok(start > 0 && end > start);
-  assert.match(commandBody, /getDerivedAgendaAvailability/);
+  assert.match(commandBody, /getTenantAgendaAvailability/);
+  assert.match(commandBody, /context\.tenant\.id/);
   assert.match(commandBody, /onlyFields\(data, new Set\(\["data", "slug"\]\)\)/);
-  assert.doesNotMatch(commandBody, /tenantId|closureId|path/);
+  assert.doesNotMatch(commandBody, /data\.tenantId|payload\.tenantId|closureId|path/);
   assert.doesNotMatch(commandBody, /transactionalCommand|operationLogRef|auditRecord|runTransaction/);
 });
 

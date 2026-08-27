@@ -12,7 +12,16 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { defineString } from "firebase-functions/params";
 import { emailAutorizado, normalizarEmail, unirPapeisPrimeiroVinculo } from "./first-link-policy.mjs";
-import { AgendaAvailabilityError, getDerivedAgendaAvailability } from "./agenda-availability.mjs";
+import { AgendaAvailabilityError, getTenantAgendaAvailability } from "./agenda-availability.mjs";
+import {
+  ANTUNES_TENANT_ID,
+  OperationalContextError,
+  assertIdempotentReplay,
+  operationalPayloadFingerprint,
+  resolveOperationalContext,
+  tenantOperationLogPath,
+  tenantV2DocumentPath,
+} from "./operational-context.mjs";
 
 const TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
 const STUDIO_IDENTITY_ID = "identidade";
@@ -59,6 +68,20 @@ function mapAgendaAvailabilityError(cause) {
     error("failed-precondition", cause.message);
   }
   error("internal", "Não foi possível consultar a disponibilidade.");
+}
+
+function mapOperationalContextError(cause) {
+  if (!(cause instanceof OperationalContextError)) throw cause;
+  if (["INVALID_ARGUMENT", "INVALID_TENANT_LOCATOR", "AMBIGUOUS_TENANT_LOCATOR", "FORBIDDEN_TENANT_OVERRIDE"].includes(cause.code)) {
+    error("invalid-argument", cause.message);
+  }
+  if (cause.code === "TENANT_NOT_FOUND") error("not-found", cause.message);
+  if (cause.code === "MEMBERSHIP_REQUIRED") error("permission-denied", cause.message);
+  if (cause.code === "REQUEST_ID_COLLISION") error("already-exists", cause.message);
+  if (["TENANT_UNAVAILABLE", "TENANT_CONTEXT_REQUIRED", "COMMAND_NOT_AVAILABLE_FOR_TENANT"].includes(cause.code)) {
+    error("failed-precondition", cause.message);
+  }
+  error("internal", "Não foi possível resolver o estabelecimento.");
 }
 
 
@@ -214,32 +237,34 @@ function requestIdFrom(data) {
   return requestId;
 }
 
-function v2Ref(collection, id) {
+function v2Ref(contextOrCollection, collectionOrId, optionalId) {
+  const context = typeof contextOrCollection === "object" ? contextOrCollection : null;
+  const collection = context ? collectionOrId : contextOrCollection;
+  const id = context ? optionalId : collectionOrId;
   const mapped = COLLECTION_MAP.get(collection);
   if (!mapped) error("internal", "Coleção sem espelho V2.");
+  if (context) return db.doc(tenantV2DocumentPath(context, mapped, id));
   return db.doc(`barbearias/${TENANT_ID}/${mapped}/${id}`);
-}
-
-function tenantConfigRef(tenantId, id) {
-  return db.doc(`barbearias/${tenantId}/configuracoes/${id}`);
 }
 
 function legacyRef(collection, id) {
   return db.collection(collection).doc(id);
 }
 
-function operationLogRef(requestId) {
+function operationLogRef(requestId, context = null) {
+  if (context) return db.doc(tenantOperationLogPath(context, requestId));
   return db.doc(`barbearias/${TENANT_ID}/audit_logs/operation-${requestId}`);
 }
 
-function auditRecord({ operation, actorUid, requestId, result }) {
+function auditRecord({ operation, actorUid, requestId, result, context = null, requestFingerprint = "" }) {
   return {
     schema: 1,
-    event_type: "OPERATIONAL_DUAL_WRITE",
+    event_type: context ? "OPERATIONAL_TENANT_WRITE" : "OPERATIONAL_DUAL_WRITE",
     operation,
-    tenant_id: TENANT_ID,
+    tenant_id: context?.tenant?.id || TENANT_ID,
     actor_fingerprint: sha256(actorUid).slice(0, 16),
     request_id: requestId,
+    ...(requestFingerprint ? { request_fingerprint: requestFingerprint } : {}),
     result,
     generated_at: FieldValue.serverTimestamp(),
     contains_personal_data: false,
@@ -375,16 +400,24 @@ function rolesWithout(member, role) {
   return memberRoles(member).filter((current) => current !== role).sort();
 }
 
-async function transactionalCommand({ operation, actorUid, requestId, execute }) {
+async function transactionalCommand({ operation, actorUid, requestId, execute, context = null, requestFingerprint = "" }) {
   return db.runTransaction(async (tx) => {
-    const logRef = operationLogRef(requestId);
+    const logRef = context ? operationLogRef(requestId, context) : operationLogRef(requestId);
     const previous = await tx.get(logRef);
     if (previous.exists) {
-      if (previous.get("operation") !== operation) error("already-exists", "Identificador de operação já utilizado.");
+      if (context) {
+        try {
+          assertIdempotentReplay(previous.data(), operation, requestFingerprint);
+        } catch (cause) {
+          mapOperationalContextError(cause);
+        }
+      } else if (previous.get("operation") !== operation) {
+        error("already-exists", "Identificador de operação já utilizado.");
+      }
       return { duplicate: true, ...(previous.get("result") || {}) };
     }
     const result = await execute(tx);
-    tx.create(logRef, auditRecord({ operation, actorUid, requestId, result }));
+    tx.create(logRef, auditRecord({ operation, actorUid, requestId, result, context, requestFingerprint }));
     return { duplicate: false, ...result };
   });
 }
@@ -551,6 +584,10 @@ async function isAdmin(tx, uid) {
 
 async function requireTenantAdmin(tx, uid, tenantId) {
   if (!await isAdmin(tx, uid)) error("permission-denied", "Acesso administrativo necessário.");
+  await requireTenantAdminMembership(tx, uid, tenantId);
+}
+
+async function requireTenantAdminMembership(tx, uid, tenantId) {
   const member = await tx.get(db.doc(`barbearias/${tenantId}/membros/${uid}`));
   const memberData = member.exists ? member.data() : null;
   if (!member.exists || !isTenantAdminMemberData(memberData, tenantId, tenantId)) {
@@ -921,22 +958,31 @@ function subscriptionCredits(plan, services) {
   }]));
 }
 
-async function adminCommand({ uid, action, data, requestId }) {
+async function adminCommand({ uid, action, data, requestId, context }) {
   const incoming = requireObject(data || {});
+  if (action === "estudio.identidade.salvar") {
+    const identity = normalizeStudioIdentityData(incoming);
+    const requestFingerprint = operationalPayloadFingerprint(identity);
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint,
+      execute: async (tx) => {
+        if (context.tenant.id === ANTUNES_TENANT_ID) await requireAdmin(tx, uid);
+        await requireTenantAdminMembership(tx, uid, context.tenant.id);
+        tx.set(v2Ref(context, "configuracoes", STUDIO_IDENTITY_ID), {
+          ...identity,
+          updatedAt: nowTimestampField(),
+          updatedBy: uid,
+        }, { merge: true });
+        return { tenantId: context.tenant.id, configId: STUDIO_IDENTITY_ID };
+      },
+    });
+  }
   return transactionalCommand({ operation: `admin.${action}`, actorUid: uid, requestId, execute: async (tx) => {
     await requireAdmin(tx, uid);
-
-    if (action === "estudio.identidade.salvar") {
-      const identity = normalizeStudioIdentityData(incoming);
-      const resolvedTenantId = TENANT_ID;
-      await requireTenantAdmin(tx, uid, resolvedTenantId);
-      tx.set(tenantConfigRef(resolvedTenantId, STUDIO_IDENTITY_ID), {
-        ...identity,
-        updatedAt: nowTimestampField(),
-        updatedBy: uid,
-      }, { merge: true });
-      return { tenantId: resolvedTenantId, configId: STUDIO_IDENTITY_ID };
-    }
 
     if (action === "funcionamento.salvar") {
       onlyFields(incoming, new Set(["intervalo_minutos", "periodos_semana", "dias_fechados_semana"]));
@@ -1176,6 +1222,12 @@ async function dispatch(request) {
   }
   const allowClientBootstrap = projectId === "teste-483f6" && command === "cliente.garantir-perfil";
   const uid = await resolveOperationalUid(authUid, projectId, allowClientBootstrap);
+  let context;
+  try {
+    context = await resolveOperationalContext({ db, projectId, authUid: uid, command, payload });
+  } catch (cause) {
+    return mapOperationalContextError(cause);
+  }
   switch (command) {
     case "cliente.garantir-perfil":
       return ensureClientProfile({ uid, email: request.auth.token.email, displayName: request.auth.token.name, extras: payload.extras, requestId, bootstrapHml: allowClientBootstrap && projectId === "teste-483f6" });
@@ -1184,11 +1236,11 @@ async function dispatch(request) {
     case "assinatura.solicitar":
       return requestSubscription({ uid, planId: payload.planId, requestId });
     case "agenda.disponibilidade.obter": {
-      onlyFields(payload, new Set(["command", "requestId", "data"]));
+      onlyFields(payload, new Set(["command", "requestId", "data", "context"]));
       const data = extractCommandData(payload);
       onlyFields(data, new Set(["data", "slug"]));
       try {
-        return await getDerivedAgendaAvailability({ db, uid, data: data.data, slug: data.slug });
+        return await getTenantAgendaAvailability({ db, tenantId: context.tenant.id, data: data.data });
       } catch (cause) {
         return mapAgendaAvailabilityError(cause);
       }
@@ -1232,7 +1284,7 @@ async function dispatch(request) {
     case "admin.assinatura.cancelar":
     case "admin.assinatura.expirar":
     case "admin.estudio.identidade.salvar":
-      return adminCommand({ uid, action: command.replace("admin.", ""), data: payload.data, requestId });
+      return adminCommand({ uid, action: command.replace("admin.", ""), data: payload.data, requestId, context });
     default:
       error("invalid-argument", "Comando operacional não suportado.");
   }

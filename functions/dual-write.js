@@ -94,9 +94,12 @@ export function normalizeAccessEmail(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-export function emailAccessIndexPath(email) {
+export function emailAccessIndexPath(contextOrEmail, optionalEmail) {
+  const context = typeof contextOrEmail === "object" ? contextOrEmail : null;
+  const email = context ? optionalEmail : contextOrEmail;
   const normalized = normalizeAccessEmail(email);
-  return normalized ? `barbearias/${TENANT_ID}/email_acesso_index/${sha256(normalized)}` : "";
+  const tenantId = context?.tenant?.id || TENANT_ID;
+  return normalized ? `barbearias/${tenantId}/email_acesso_index/${sha256(normalized)}` : "";
 }
 
 function ensureProject() {
@@ -685,6 +688,14 @@ function tenantDelete(tx, context, collection, id) {
   tx.delete(v2Ref(context, collection, id));
 }
 
+function tenantBarberLinkRef(context, uid) {
+  return db.doc(`barbearias/${context.tenant.id}/vinculos_barbeiro/${uid}`);
+}
+
+function tenantMemberRef(context, uid) {
+  return db.doc(`barbearias/${context.tenant.id}/membros/${uid}`);
+}
+
 async function createAppointment({ uid, authUid, data, requestId }) {
   const incoming = requireObject(data);
   const barberId = cleanText(incoming.barbeiro_id, 200);
@@ -1088,7 +1099,9 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "funcionamento.salvar",
   "servico.salvar",
   "servico.remover",
+  "barbeiro.salvar",
   "barbeiro.ativar",
+  "barbeiro.remover",
   "abertura.salvar",
   "abertura.remover",
   "plano.inicial",
@@ -1209,6 +1222,127 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
           }, { merge: true });
         }
         return { barberId: activation.id };
+      },
+    });
+  }
+
+  if (action === "barbeiro.salvar") {
+    onlyFields(incoming, new Set(["id", "nome", "foto", "especialidade", "descricao", "uid_usuario", "email_acesso", "ativo", "uid_vinculo_original"]));
+    const requestedId = cleanText(incoming.id || "", 200);
+    const barber = {
+      nome: cleanText(incoming.nome, 120),
+      foto: cleanText(incoming.foto || "", 900000),
+      especialidade: cleanText(incoming.especialidade || "", 240),
+      descricao: cleanText(incoming.descricao || "", 1200),
+      uid_usuario: cleanText(incoming.uid_usuario || "", 200),
+      email_acesso: cleanText(incoming.email_acesso || "", 320).toLowerCase(),
+      ativo: Boolean(incoming.ativo),
+    };
+    if (!barber.nome) error("invalid-argument", "Nome obrigatório.");
+    if (barber.email_acesso && !/^\S+@\S+\.\S+$/.test(barber.email_acesso)) error("invalid-argument", "E-mail inválido.");
+    const originalUidHint = cleanText(incoming.uid_vinculo_original || "", 200);
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id: requestedId, ...barber, uid_vinculo_original: originalUidHint }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const id = requestedId || (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+          ? db.collection("barbeiros").doc().id
+          : tenantCollectionRef(context, "barbeiros").doc().id);
+        const existing = await tx.get(tenantPrimaryRef(context, "barbeiros", id));
+        const oldEmail = existing.exists ? normalizeAccessEmail(existing.get("email_acesso") || "") : "";
+        const originalUid = context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+          ? originalUidHint
+          : cleanText(existing.exists ? existing.get("uid_usuario") || "" : "", 200);
+        const emailIndexRef = barber.email_acesso ? db.doc(emailAccessIndexPath(context, barber.email_acesso)) : null;
+        const oldEmailIndexRef = oldEmail && oldEmail !== barber.email_acesso ? db.doc(emailAccessIndexPath(context, oldEmail)) : null;
+        const uidLinkRef = barber.uid_usuario
+          ? (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+            ? legacyRef("vinculos_barbeiro", barber.uid_usuario)
+            : tenantBarberLinkRef(context, barber.uid_usuario))
+          : null;
+        const memberRef = barber.uid_usuario ? tenantMemberRef(context, barber.uid_usuario) : null;
+        const originalMemberRef = originalUid && originalUid !== barber.uid_usuario ? tenantMemberRef(context, originalUid) : null;
+        const [emailMatches, emailIndex, oldEmailIndex, uidLink, member, originalMember] = await Promise.all([
+          context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE && barber.email_acesso
+            ? tx.get(db.collection("barbeiros").where("email_acesso", "==", barber.email_acesso))
+            : Promise.resolve(null),
+          emailIndexRef ? tx.get(emailIndexRef) : Promise.resolve(null),
+          oldEmailIndexRef ? tx.get(oldEmailIndexRef) : Promise.resolve(null),
+          uidLinkRef ? tx.get(uidLinkRef) : Promise.resolve(null),
+          memberRef ? tx.get(memberRef) : Promise.resolve(null),
+          originalMemberRef ? tx.get(originalMemberRef) : Promise.resolve(null),
+        ]);
+        if (emailMatches?.docs.some((doc) => doc.id !== id)) error("already-exists", "EMAIL_JA_VINCULADO");
+        if (emailIndex?.exists && emailIndex.get("barbeiro_id") !== id) error("already-exists", "EMAIL_JA_VINCULADO");
+        if (oldEmailIndex?.exists && oldEmailIndex.get("barbeiro_id") !== id) error("failed-precondition", "INDICE_EMAIL_INCONSISTENTE");
+        if (uidLink?.exists && uidLink.get("barbeiro_id") !== id) error("already-exists", "UID_JA_VINCULADO");
+        if (member?.exists && cleanText(member.get("barbeiro_id") || "", 200) && member.get("barbeiro_id") !== id) {
+          error("already-exists", "UID_JA_VINCULADO");
+        }
+        if (emailIndexRef && !emailIndex?.exists) {
+          tx.create(emailIndexRef, { email_acesso: barber.email_acesso, barbeiro_id: id, tenant_id: context.tenant.id, criado_em: nowTimestampField() });
+        }
+        if (oldEmailIndexRef && oldEmailIndex?.exists) tx.delete(oldEmailIndexRef);
+        tenantSet(tx, context, "barbeiros", id, { ...barber, ...(existing.exists ? {} : { criado_em: nowTimestampField() }) }, { merge: existing.exists });
+        if (barber.uid_usuario) {
+          if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) {
+            tx.set(legacyRef("vinculos_barbeiro", barber.uid_usuario), { barbeiro_id: id, atualizado_em: nowTimestampField() });
+          }
+          tx.set(tenantBarberLinkRef(context, barber.uid_usuario), { barbeiro_id: id, tenant_id: context.tenant.id, atualizado_em: nowTimestampField() });
+          tx.set(memberRef, { uid: barber.uid_usuario, papeis: rolesWith(member, "BARBEIRO"), barbeiro_id: id, ativo: barber.ativo, atualizado_em: nowTimestampField() }, { merge: true });
+        }
+        if (originalUid && originalUid !== barber.uid_usuario) {
+          if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) tx.delete(legacyRef("vinculos_barbeiro", originalUid));
+          tx.delete(tenantBarberLinkRef(context, originalUid));
+          tx.set(originalMemberRef, { barbeiro_id: "", papeis: rolesWithout(originalMember, "BARBEIRO"), atualizado_em: nowTimestampField() }, { merge: true });
+        }
+        return { barberId: id, created: !existing.exists };
+      },
+    });
+  }
+
+  if (action === "barbeiro.remover") {
+    onlyFields(incoming, new Set(["id"]));
+    const id = cleanText(incoming.id, 200);
+    if (!id) error("invalid-argument", "Barbeiro inválido.");
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const barber = await tx.get(tenantPrimaryRef(context, "barbeiros", id));
+        if (!barber.exists) return { barberId: id, removed: false };
+        const linkedUid = cleanText(barber.get("uid_usuario") || "", 200);
+        const email = normalizeAccessEmail(barber.get("email_acesso") || "");
+        const emailIndexRef = email ? db.doc(emailAccessIndexPath(context, email)) : null;
+        const uidLinkRef = linkedUid
+          ? (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE
+            ? legacyRef("vinculos_barbeiro", linkedUid)
+            : tenantBarberLinkRef(context, linkedUid))
+          : null;
+        const memberRef = linkedUid ? tenantMemberRef(context, linkedUid) : null;
+        const [emailIndex, uidLink, member] = await Promise.all([
+          emailIndexRef ? tx.get(emailIndexRef) : Promise.resolve(null),
+          uidLinkRef ? tx.get(uidLinkRef) : Promise.resolve(null),
+          memberRef ? tx.get(memberRef) : Promise.resolve(null),
+        ]);
+        if (emailIndex?.exists && emailIndex.get("barbeiro_id") !== id) error("failed-precondition", "INDICE_EMAIL_INCONSISTENTE");
+        if (uidLink?.exists && uidLink.get("barbeiro_id") !== id) error("failed-precondition", "VINCULO_UID_INCONSISTENTE");
+        if (emailIndex?.exists) tx.delete(emailIndexRef);
+        tenantDelete(tx, context, "barbeiros", id);
+        if (linkedUid) {
+          if (context.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE) tx.delete(legacyRef("vinculos_barbeiro", linkedUid));
+          tx.delete(tenantBarberLinkRef(context, linkedUid));
+          tx.set(memberRef, { barbeiro_id: "", papeis: rolesWithout(member, "BARBEIRO"), ativo: false, atualizado_em: nowTimestampField() }, { merge: true });
+        }
+        return { barberId: id, removed: true };
       },
     });
   }

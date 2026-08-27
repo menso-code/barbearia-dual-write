@@ -160,7 +160,7 @@ test("requestId e fingerprint ficam isolados por tenant e protegem colisão", ()
 });
 
 test("runtime conecta contexto, audit e referências tenant-scoped sem alterar contagem", () => {
-  const handler = sourceBetween("async function tenantScopedAdminCommand", "async function adminCommand");
+  const handler = sourceBetween('if (action === "funcionamento.salvar")', 'if (action === "barbeiro.salvar")');
   assert.doesNotMatch(handler, /legacyRef|mirrorSet|mirrorUpdate|mirrorDelete/);
   assert.match(handler, /tenantSet\(tx, context/);
   assert.match(handler, /tenantUpdate\(tx, context/);

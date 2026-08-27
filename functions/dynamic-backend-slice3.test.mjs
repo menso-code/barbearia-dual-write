@@ -149,7 +149,7 @@ test("Slice 3 mantém os três handlers e não incorpora domínios excluídos", 
   for (const command of SLICE_3_COMMANDS) {
     assert.match(actionSet, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }
-  for (const excluded of ["fechamento.salvar", "fechamento.remover", "barbeiro.salvar", "barbeiro.remover"] ) {
+  for (const excluded of ["fechamento.salvar", "fechamento.remover"] ) {
     assert.doesNotMatch(actionSet, new RegExp(`"${excluded.replaceAll(".", "\\.")}"`));
   }
 });

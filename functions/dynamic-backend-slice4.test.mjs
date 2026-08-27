@@ -141,7 +141,7 @@ test("Slice 4 registra somente os dois comandos aprovados e mantém 32 comandos"
   for (const command of SLICE_4_COMMANDS) {
     assert.match(actionSet, new RegExp(`"${command.replace("admin.", "").replaceAll(".", "\\.")}"`));
   }
-  for (const excluded of ["bloqueio.criar", "fechamento.salvar", "barbeiro.salvar"]) {
+  for (const excluded of ["bloqueio.criar", "fechamento.salvar"]) {
     assert.doesNotMatch(actionSet, new RegExp(`"${excluded.replaceAll(".", "\\.")}"`));
   }
   assert.equal((runtime.match(/^\s*case "[^"]+":/gm) || []).length, 32);

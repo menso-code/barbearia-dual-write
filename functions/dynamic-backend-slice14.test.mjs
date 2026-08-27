@@ -56,7 +56,7 @@ function seed(model, mode, tenant, { status = "PENDENTE", active = true, service
 }
 
 test("Slice 14 registra somente aprovação tenant-scoped e mantém 32 comandos", () => {
-  assert.equal(allCommands.length, 32); assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true); assert.equal(allCommands.filter((item) => !DYNAMIC_TENANT_COMMANDS.includes(item)).length, 7);
+  assert.equal(allCommands.length, 32); assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true); assert.equal(allCommands.filter((item) => !DYNAMIC_TENANT_COMMANDS.includes(item)).length, 5);
   const source = handler();
   for (const fragment of ["requireContextAdmin(tx, uid, context)", 'tenantPrimaryRef(context, "solicitacoes_assinatura", id)', 'tenantPrimaryRef(context, "planos_assinatura", planId)', 'tenantPrimaryRef(context, "servicos", serviceId)', 'tenantUpdate(tx, context, "solicitacoes_assinatura", id']) assert.match(source, new RegExp(fragment.replace(/[().]/g, "\\$&")));
   assert.match(source, /vencimento_em: dueDateOneMonth\(\)/);
@@ -86,6 +86,6 @@ test("REQUEST_ID_COLLISION_BLOCKED e isolamento por tenant", () => {
   assert.equal(model.approve({ mode: OPERATIONAL_CONTEXT_MODES.V2_ONLY, tenant: "tenant-b", roles: ["ADMIN"], id: "sub-1", requestId: "same" }).status, "ATIVA");
 });
 
-test("OTHER_7_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
-  const remaining = allCommands.filter((item) => !DYNAMIC_TENANT_COMMANDS.includes(item)); assert.equal(remaining.length, 7); assert.equal(remaining.includes(command), false); assert.equal(remaining.includes("agenda.criar"), true);
+test("OTHER_5_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+  const remaining = allCommands.filter((item) => !DYNAMIC_TENANT_COMMANDS.includes(item)); assert.equal(remaining.length, 5); assert.equal(remaining.includes(command), false); assert.equal(remaining.includes("agenda.criar"), true);
 });

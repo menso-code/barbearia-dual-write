@@ -101,6 +101,10 @@ const SLICE_15_COMMANDS = Object.freeze([
   "agenda.cancelar",
   "agenda.nao_compareceu",
 ]);
+const SLICE_16_COMMANDS = Object.freeze([
+  "admin.barbeiro.salvar",
+  "admin.barbeiro.remover",
+]);
 
 const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
@@ -132,7 +136,13 @@ const SLICE_14_COMMANDS = Object.freeze([
   "admin.assinatura.aprovar",
 ]);
 
-const MIGRATED_ADMIN_COMMANDS = Object.freeze([...SLICE_2_COMMANDS, ...SLICE_3_COMMANDS, ...SLICE_4_COMMANDS, ...SLICE_8_COMMANDS]);
+const MIGRATED_ADMIN_COMMANDS = Object.freeze([
+  ...SLICE_2_COMMANDS,
+  ...SLICE_3_COMMANDS,
+  ...SLICE_4_COMMANDS,
+  ...SLICE_8_COMMANDS,
+  ...SLICE_16_COMMANDS,
+]);
 
 const ALL_OPERATIONAL_COMMANDS = Object.freeze([
   "cliente.garantir-perfil", "cliente.atualizar-perfil", "assinatura.solicitar",
@@ -178,7 +188,10 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_6_COMMANDS,
     ...SLICE_15_COMMANDS,
     "admin.estudio.identidade.salvar",
-    ...SLICE_2_COMMANDS,
+    ...SLICE_2_COMMANDS.slice(0, 3),
+    ...SLICE_16_COMMANDS.slice(0, 1),
+    ...SLICE_2_COMMANDS.slice(3),
+    ...SLICE_16_COMMANDS.slice(1),
     ...SLICE_3_COMMANDS,
     ...SLICE_4_COMMANDS,
     ...SLICE_14_COMMANDS,
@@ -475,10 +488,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_7_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_5_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 7);
+  assert.equal(remaining.length, 5);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),

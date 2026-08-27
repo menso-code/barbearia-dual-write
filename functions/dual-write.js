@@ -507,7 +507,7 @@ async function ensureClientProfile({ uid, email, displayName, extras, requestId,
   });
 }
 
-async function updateClientProfile({ uid, data, requestId }) {
+async function updateClientProfile({ uid, data, requestId, context = null }) {
   const incoming = requireObject(data);
   const allowed = new Set([
     "nome", "telefone", "data_nascimento", "avatar_data", "barbeiro_favorito_id",
@@ -525,16 +525,24 @@ async function updateClientProfile({ uid, data, requestId }) {
     ...(incoming.observacoes !== undefined ? { observacoes: cleanText(incoming.observacoes, 1000) } : {}),
   };
   if (!Object.keys(changes).length) error("invalid-argument", "Nenhuma alteração válida.");
-  const clientRef = legacyRef("clientes", uid);
+  const clientRef = context
+    ? tenantPrimaryRef(context, "clientes", uid)
+    : legacyRef("clientes", uid);
   return transactionalCommand({
     operation: "cliente.atualizar-perfil",
     actorUid: uid,
     requestId,
+    context,
+    requestFingerprint: operationalPayloadFingerprint(changes),
     execute: async (tx) => {
       const current = await tx.get(clientRef);
       if (!current.exists) error("failed-precondition", "Perfil não encontrado.");
-      tx.update(clientRef, changes);
-      tx.set(v2Ref("clientes", uid), changes, { merge: true });
+      if (context) tenantUpdate(tx, context, "clientes", uid, changes);
+      else {
+        tx.update(clientRef, changes);
+        tx.set(v2Ref("clientes", uid), changes, { merge: true });
+      }
+      // usuarios/{uid} é identidade global: somente o nome pode ser espelhado.
       if (changes.nome !== undefined) tx.set(db.doc(`usuarios/${uid}`), { nome: changes.nome }, { merge: true });
       return { clientId: uid, updated: Object.keys(changes).sort() };
     },
@@ -1655,7 +1663,8 @@ async function dispatch(request) {
     case "cliente.garantir-perfil":
       return ensureClientProfile({ uid, email: request.auth.token.email, displayName: request.auth.token.name, extras: payload.extras, requestId, bootstrapHml: allowClientBootstrap && projectId === "teste-483f6" });
     case "cliente.atualizar-perfil":
-      return updateClientProfile({ uid, data: payload.data, requestId });
+      onlyFields(payload, new Set(["command", "requestId", "context", "data"]));
+      return updateClientProfile({ uid, data: payload.data, requestId, context });
     case "assinatura.solicitar":
       onlyFields(payload, new Set(["command", "requestId", "context", "planId"]));
       return requestSubscription({ uid, planId: payload.planId, requestId, context });

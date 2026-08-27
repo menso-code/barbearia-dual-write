@@ -1066,6 +1066,7 @@ const TENANT_SCOPED_ADMIN_ACTIONS = new Set([
   "plano.salvar",
   "plano.ativar",
   "assinatura.recusar",
+  "assinatura.cancelar",
 ]);
 
 async function requireContextAdmin(tx, uid, context) {
@@ -1380,6 +1381,34 @@ async function tenantScopedAdminCommand({ uid, action, incoming, requestId, cont
           recusado_por: uid,
         });
         return { subscriptionId: id, status: "RECUSADA" };
+      },
+    });
+  }
+
+  if (action === "assinatura.cancelar") {
+    onlyFields(incoming, new Set(["id", "motivo"]));
+    const id = cleanText(incoming.id, 300);
+    if (!id) error("invalid-argument", "Solicitação de assinatura inválida.");
+    const motivo = cleanText(incoming.motivo || "Administrativo", 240);
+    return transactionalCommand({
+      operation: `admin.${action}`,
+      actorUid: uid,
+      requestId,
+      context,
+      requestFingerprint: operationalPayloadFingerprint({ id, motivo }),
+      execute: async (tx) => {
+        await requireContextAdmin(tx, uid, context);
+        const subscription = await tx.get(tenantPrimaryRef(context, "solicitacoes_assinatura", id));
+        if (!subscription.exists || !["PENDENTE", "ATIVA"].includes(subscription.get("status"))) {
+          error("failed-precondition", "ASSINATURA_INDISPONIVEL");
+        }
+        tenantUpdate(tx, context, "solicitacoes_assinatura", id, {
+          status: "CANCELADA",
+          cancelada_em: nowTimestampField(),
+          cancelada_por: uid,
+          motivo_cancelamento: motivo,
+        });
+        return { subscriptionId: id, status: "CANCELADA" };
       },
     });
   }

@@ -72,7 +72,7 @@ class BootstrapModel {
 test("Slice 17 registers only client bootstrap and routes it through the tenant-scoped handler", () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS.filter((command) => selected.includes(command)), selected);
   assert.equal(allCommands.length, 32);
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 0);
   const start = runtime.indexOf("async function ensureClientProfile(");
   const end = runtime.indexOf("async function updateClientProfile(", start);
   const handler = runtime.slice(start, end);
@@ -135,7 +135,7 @@ test("PROFILE_AND_MEMBERSHIP_ATOMIC, replay safe and tenant-scoped request IDs",
   assert.ok(antunes.readV2(ANTUNES_TENANT_ID, "clientes", "legacy-client"));
 });
 
-test("recursive tenant selector rejection and OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", () => {
+test("recursive tenant selector rejection and ALL_32_COMMANDS_MIGRATED_TO_TENANT_CONTEXT", () => {
   for (const payload of [
     { extras: { tenantId: "tenant-b" } },
     { extras: { nested: { tenant_id: "tenant-b", write_mode: "legacy" } } },
@@ -143,5 +143,5 @@ test("recursive tenant selector rejection and OTHER_4_COMMANDS_FAIL_CLOSED_FOR_N
   ]) {
     assert.throws(() => validateOperationalEnvelope({ command: "cliente.garantir-perfil", requestId: "bootstrap-selector-0001", context: { slug: "studio-a" }, ...payload }), (cause) => cause?.code === "FORBIDDEN_TENANT_OVERRIDE");
   }
-  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 4);
+  assert.equal(allCommands.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command)).length, 0);
 });

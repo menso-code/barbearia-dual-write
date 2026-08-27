@@ -108,6 +108,14 @@ const SLICE_16_COMMANDS = Object.freeze([
 const SLICE_17_COMMANDS = Object.freeze([
   "cliente.garantir-perfil",
 ]);
+const SLICE_18_COMMANDS = Object.freeze([
+  "agenda.criar",
+  "agenda.reagendar",
+]);
+const FINAL_CLOSURE_COMMANDS = Object.freeze([
+  "admin.fechamento.salvar",
+  "admin.fechamento.remover",
+]);
 
 const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
@@ -186,6 +194,7 @@ async function rejectsCode(promise, code) {
 test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
   assert.deepEqual(DYNAMIC_TENANT_COMMANDS, [
     "agenda.disponibilidade.obter",
+    ...SLICE_18_COMMANDS,
     ...SLICE_7_COMMANDS,
     ...SLICE_5_COMMANDS,
     ...SLICE_6_COMMANDS,
@@ -195,7 +204,9 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_16_COMMANDS.slice(0, 1),
     ...SLICE_2_COMMANDS.slice(3),
     ...SLICE_16_COMMANDS.slice(1),
-    ...SLICE_3_COMMANDS,
+    ...SLICE_3_COMMANDS.slice(0, 2),
+    ...FINAL_CLOSURE_COMMANDS,
+    ...SLICE_3_COMMANDS.slice(2),
     ...SLICE_4_COMMANDS,
     ...SLICE_14_COMMANDS,
     ...SLICE_8_COMMANDS,
@@ -476,40 +487,19 @@ test("LEGACY_MODE_CANNOT_BE_CLIENT_SELECTED", () => {
   );
 });
 
-test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
+test("FINAL_CLOSURE_COMMANDS resolve for active tenant-scoped admins", async () => {
   const db = fixture();
-  await rejectsCode(resolveOperationalContext({
-    db,
-    projectId: "barber-a01e7",
-    authUid: "admin-a",
-    command: "agenda.criar",
-    payload: {
-      command: "agenda.criar",
-      requestId: "legacy-command-request-0001",
-      context: { hostname: "studio-a.goestudio.com.br" },
-      data: {},
-    },
-  }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
+  for (const command of FINAL_CLOSURE_COMMANDS) {
+    const context = await adminContext(db, command, "studio-a", "admin-a");
+    assert.equal(context.tenant.id, "tenant-a");
+    assert.equal(context.actor.roles.includes("ADMIN"), true);
+  }
 });
 
-test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("ALL_32_COMMANDS_MIGRATED_TO_TENANT_CONTEXT", () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 4);
-  for (const command of remaining) {
-    await rejectsCode(resolveOperationalContext({
-      db: fixture(),
-      projectId: "barber-a01e7",
-      authUid: "admin-a",
-      command,
-      payload: {
-        command,
-        requestId: `blocked-${command.replaceAll(".", "-")}-0001`,
-        context: { hostname: "studio-a.goestudio.com.br" },
-        data: {},
-      },
-    }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
-  }
+  assert.equal(remaining.length, 0);
 });
 
 test("CLIENT_BOOTSTRAP resolves an active tenant without prior membership", async () => {
@@ -555,20 +545,18 @@ test("CLIENT_BOOTSTRAP fails closed for inactive and unknown tenants", async () 
   await rejectsCode(bootstrap("unknown.goestudio.com.br"), "TENANT_NOT_FOUND");
 });
 
-test("comando legado preserva compatibilidade Antunes sem localizador", async () => {
+test("agenda migrada exige localizador fora da compatibilidade HML", async () => {
   const db = new MemoryDb({
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/legacy-user`]: { ativo: true, papeis: ["CLIENTE"] },
   });
-  const context = await resolveOperationalContext({
+  await rejectsCode(resolveOperationalContext({
     db,
     projectId: "barber-a01e7",
     authUid: "legacy-user",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "legacy-antunes-request-01", data: {} },
-  });
-  assert.equal(context.tenant.id, ANTUNES_TENANT_ID);
-  assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE);
+  }), "TENANT_CONTEXT_REQUIRED");
 });
 
 test("omitir localizador não seleciona Antunes para membro de outro tenant", async () => {
@@ -583,7 +571,7 @@ test("omitir localizador não seleciona Antunes para membro de outro tenant", as
     authUid: "user-b",
     command: "agenda.criar",
     payload: { command: "agenda.criar", requestId: "omitted-context-request-01", data: {} },
-  }), "MEMBERSHIP_REQUIRED");
+  }), "TENANT_CONTEXT_REQUIRED");
 });
 
 test("host Firebase legado é allowlist exata e identidade continua V2-only", async () => {

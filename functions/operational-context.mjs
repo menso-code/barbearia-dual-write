@@ -21,6 +21,8 @@ export const OPERATIONAL_CONTEXT_MODES = Object.freeze({
 
 export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "agenda.disponibilidade.obter",
+  "agenda.criar",
+  "agenda.reagendar",
   "bloqueio.criar",
   "bloqueio.remover",
   "agenda.cliente_chegou",
@@ -37,6 +39,8 @@ export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "admin.barbeiro.remover",
   "admin.abertura.salvar",
   "admin.abertura.remover",
+  "admin.fechamento.salvar",
+  "admin.fechamento.remover",
   "admin.plano.ativar",
   "admin.plano.inicial",
   "admin.plano.salvar",
@@ -63,6 +67,8 @@ const ROLE_BY_COMMAND = new Map([
   ["admin.barbeiro.remover", "ADMIN"],
   ["admin.abertura.salvar", "ADMIN"],
   ["admin.abertura.remover", "ADMIN"],
+  ["admin.fechamento.salvar", "ADMIN"],
+  ["admin.fechamento.remover", "ADMIN"],
   ["admin.plano.ativar", "ADMIN"],
   ["admin.plano.inicial", "ADMIN"],
   ["admin.plano.salvar", "ADMIN"],
@@ -76,6 +82,8 @@ const ROLE_BY_COMMAND = new Map([
 ]);
 const ALWAYS_V2_ONLY_COMMANDS = new Set(["admin.estudio.identidade.salvar"]);
 const HML_ANTUNES_COMPAT_COMMANDS = new Set([
+  "agenda.criar",
+  "agenda.reagendar",
   "bloqueio.criar",
   "bloqueio.remover",
   "agenda.cliente_chegou",
@@ -91,6 +99,8 @@ const HML_ANTUNES_COMPAT_COMMANDS = new Set([
   "admin.barbeiro.remover",
   "admin.abertura.salvar",
   "admin.abertura.remover",
+  "admin.fechamento.salvar",
+  "admin.fechamento.remover",
   "admin.plano.ativar",
   "admin.plano.inicial",
   "admin.plano.salvar",

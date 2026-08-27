@@ -47,6 +47,7 @@ export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "admin.assinatura.renovar",
   "assinatura.solicitar",
   "cliente.atualizar-perfil",
+  "cliente.garantir-perfil",
 ]);
 
 const DYNAMIC_TENANT_COMMAND_SET = new Set(DYNAMIC_TENANT_COMMANDS);
@@ -269,9 +270,10 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
 
   if (!locator) {
     const hmlAntunesCompat = projectId === "teste-483f6" && HML_ANTUNES_COMPAT_COMMANDS.has(command);
-    if (dynamicCommand && !hmlAntunesCompat) fail("TENANT_CONTEXT_REQUIRED", "Contexto do estabelecimento obrigatório.");
     const hmlClientBootstrap = projectId === "teste-483f6" && command === CLIENT_BOOTSTRAP_COMMAND;
-    const roles = hmlClientBootstrap
+    const clientBootstrap = command === CLIENT_BOOTSTRAP_COMMAND;
+    if (dynamicCommand && !hmlAntunesCompat && !clientBootstrap) fail("TENANT_CONTEXT_REQUIRED", "Contexto do estabelecimento obrigatório.");
+    const roles = hmlClientBootstrap || clientBootstrap
       ? []
       : await validateTenantAndMembership({
         db,
@@ -303,8 +305,10 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
     fail("COMMAND_NOT_AVAILABLE_FOR_TENANT", "Comando ainda não disponível para este estabelecimento.");
   }
 
-  const antunesClientBootstrap = isAntunes && command === CLIENT_BOOTSTRAP_COMMAND;
-  const roles = antunesClientBootstrap
+  // Este é o único comando que pode criar a membership que os demais exigem.
+  // Ainda assim, o tenant já foi resolvido e validado antes deste ponto.
+  const clientBootstrap = command === CLIENT_BOOTSTRAP_COMMAND;
+  const roles = clientBootstrap
     ? []
     : await validateTenantAndMembership({ db, ...resolved, authUid, requiredRole });
   const mode = command === "agenda.disponibilidade.obter"

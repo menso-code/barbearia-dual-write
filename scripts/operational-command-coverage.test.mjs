@@ -50,7 +50,8 @@ test("cliente do frontend preserva o envelope canônico", () => {
 });
 
 test("índice de email permanece namespaced e create-only", () => {
-  assert.match(runtime, /barbearias\/\$\{TENANT_ID\}\/email_acesso_index/);
+  assert.match(runtime, /const tenantId = context\?\.tenant\?\.id \|\| TENANT_ID/);
+  assert.match(runtime, /barbearias\/\$\{tenantId\}\/email_acesso_index/);
   assert.match(runtime, /tx\.create\(emailIndexRef/);
   assert.match(runtime, /INDICE_EMAIL_INCONSISTENTE/);
   assert.match(runtime, /tx\.delete\(emailIndexRef\)/);

@@ -105,6 +105,9 @@ const SLICE_16_COMMANDS = Object.freeze([
   "admin.barbeiro.salvar",
   "admin.barbeiro.remover",
 ]);
+const SLICE_17_COMMANDS = Object.freeze([
+  "cliente.garantir-perfil",
+]);
 
 const SLICE_7_COMMANDS = Object.freeze([
   "bloqueio.criar",
@@ -201,6 +204,7 @@ test("TENANT_A_COMMAND_WORKS e TENANT_B_COMMAND_WORKS", async () => {
     ...SLICE_13_COMMANDS,
     ...SLICE_11_COMMANDS,
     ...SLICE_12_COMMANDS,
+    ...SLICE_17_COMMANDS,
   ]);
   const db = fixture();
   const tenantA = await identityContext(db, "studio-a", "admin-a");
@@ -488,10 +492,10 @@ test("LEGACY_COMMAND_BLOCKED_FOR_NEW_TENANT", async () => {
   }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
 });
 
-test("OTHER_5_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
+test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
   assert.equal(ALL_OPERATIONAL_COMMANDS.length, 32);
   const remaining = ALL_OPERATIONAL_COMMANDS.filter((command) => !DYNAMIC_TENANT_COMMANDS.includes(command));
-  assert.equal(remaining.length, 5);
+  assert.equal(remaining.length, 4);
   for (const command of remaining) {
     await rejectsCode(resolveOperationalContext({
       db: fixture(),
@@ -506,6 +510,49 @@ test("OTHER_5_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS", async () => {
       },
     }), "COMMAND_NOT_AVAILABLE_FOR_TENANT");
   }
+});
+
+test("CLIENT_BOOTSTRAP resolves an active tenant without prior membership", async () => {
+  const db = new MemoryDb({
+    "tenant_slugs/studio-a": { tenantId: "tenant-a", status: "ACTIVE" },
+    "barbearias/tenant-a": { slug: "studio-a", status: "ACTIVE" },
+  });
+  const context = await resolveOperationalContext({
+    db,
+    projectId: "barber-a01e7",
+    authUid: "new-client-a",
+    command: "cliente.garantir-perfil",
+    payload: {
+      command: "cliente.garantir-perfil",
+      requestId: "bootstrap-studio-a-0001",
+      context: { hostname: "studio-a.goestudio.com.br" },
+      extras: { nome: "Cliente A" },
+    },
+  });
+  assert.equal(context.tenant.id, "tenant-a");
+  assert.equal(context.mode, OPERATIONAL_CONTEXT_MODES.V2_ONLY);
+  assert.deepEqual(context.actor.roles, []);
+});
+
+test("CLIENT_BOOTSTRAP fails closed for inactive and unknown tenants", async () => {
+  const inactive = new MemoryDb({
+    "tenant_slugs/studio-off": { tenantId: "tenant-off", status: "ACTIVE" },
+    "barbearias/tenant-off": { slug: "studio-off", status: "INACTIVE" },
+  });
+  const bootstrap = (hostname) => resolveOperationalContext({
+    db: hostname === "studio-off.goestudio.com.br" ? inactive : new MemoryDb({}),
+    projectId: "barber-a01e7",
+    authUid: "new-client-a",
+    command: "cliente.garantir-perfil",
+    payload: {
+      command: "cliente.garantir-perfil",
+      requestId: "bootstrap-fails-closed-0001",
+      context: { hostname },
+      extras: {},
+    },
+  });
+  await rejectsCode(bootstrap("studio-off.goestudio.com.br"), "TENANT_UNAVAILABLE");
+  await rejectsCode(bootstrap("unknown.goestudio.com.br"), "TENANT_NOT_FOUND");
 });
 
 test("comando legado preserva compatibilidade Antunes sem localizador", async () => {

@@ -213,7 +213,7 @@ const client = { nome: "Cliente A", telefone: "5511999999999" };
 test("Slice 11 registra somente assinatura.solicitar e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 5);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 4);
   const handler = sourceBetween("async function requestSubscription", "async function isAdmin");
   assert.match(handler, /context\s*\?\s*tenantPrimaryRef\(context, collection, id\)/);
   assert.match(handler, /tenantSet\(tx, context, "solicitacoes_assinatura"/);
@@ -349,9 +349,9 @@ test("NO_CREDIT_CREATED, NO_FINANCIAL_WRITE e ROLLBACK_ON_FAILURE", () => {
   assert.equal(model.financialWrites, 0);
 });
 
-test("OTHER_5_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_4_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 5);
+  assert.equal(remaining.length, 4);
   assert.equal(remaining.includes("assinatura.solicitar"), false);
   assert.equal(remaining.includes("agenda.criar"), true);
   assert.equal(allCommands.length, 32);

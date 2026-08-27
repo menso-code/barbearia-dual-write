@@ -434,7 +434,7 @@ function clientIdentity(uid, data) {
   return identity;
 }
 
-async function ensureClientProfile({ uid, email, displayName, extras, requestId, bootstrapHml = false }) {
+async function ensureClientProfile({ uid, email, displayName, extras, requestId, context, bootstrapHml = false }) {
   const suppliedExtras = requireObject(extras || {});
   const allowedExtras = new Set(["nome", "email", "telefone"]);
   if (Object.keys(suppliedExtras).some((key) => !allowedExtras.has(key))) {
@@ -443,19 +443,22 @@ async function ensureClientProfile({ uid, email, displayName, extras, requestId,
   const safeExtras = Object.fromEntries(Object.entries(suppliedExtras).filter(([key]) => allowedExtras.has(key)));
   const nome = cleanText(safeExtras.nome || displayName || "", 120);
   const telefone = cleanPhone(safeExtras.telefone || "");
-  const clientRef = legacyRef("clientes", uid);
+  const antunesDualWrite = context?.mode === OPERATIONAL_CONTEXT_MODES.ANTUNES_DUAL_WRITE;
+  const clientRef = tenantPrimaryRef(context, "clientes", uid);
   return transactionalCommand({
     operation: "cliente.garantir-perfil",
     actorUid: uid,
     requestId,
+    context,
+    requestFingerprint: operationalPayloadFingerprint({ nome, telefone, email: String(email || "") }),
     execute: async (tx) => {
       const mappingRef = bootstrapHml ? db.doc(`homologacao_mapeamentos/${uid}`) : null;
       const mapping = mappingRef ? await tx.get(mappingRef) : null;
       const adminRecord = bootstrapHml ? await tx.get(legacyRef("admins", uid)) : null;
-      const clientV2Ref = v2Ref("clientes", uid);
+      const clientV2Ref = antunesDualWrite ? v2Ref(context, "clientes", uid) : null;
       const current = await tx.get(clientRef);
-      const currentV2 = await tx.get(clientV2Ref);
-      const memberRef = db.doc(`barbearias/${TENANT_ID}/membros/${uid}`);
+      const currentV2 = clientV2Ref ? await tx.get(clientV2Ref) : null;
+      const memberRef = tenantMemberRef(context, uid);
       const member = await tx.get(memberRef);
 
       if (bootstrapHml && adminRecord?.exists) {
@@ -468,19 +471,25 @@ async function ensureClientProfile({ uid, email, displayName, extras, requestId,
           }
         }
       }
-      if (current.exists !== currentV2.exists) {
+      if (currentV2 && current.exists !== currentV2.exists) {
         error("failed-precondition", "Perfil de cliente Legado/V2 inconsistente.");
       }
       if (bootstrapHml && member.exists && memberRoles(member).some((role) => ["ADMIN", "BARBEIRO"].includes(role))) {
         error("permission-denied", "Conta de cliente HML possui papel privilegiado.");
       }
+      const existingRoles = memberRoles(member);
+      const hasPrivilegedRole = existingRoles.some((role) => ["ADMIN", "BARBEIRO"].includes(role));
+      if (!bootstrapHml && hasPrivilegedRole && member.get("ativo") !== true) {
+        error("permission-denied", "Membership privilegiada inativa não pode ser reativada por bootstrap.");
+      }
       const initial = !current.exists;
       const next = initial
         ? { nome, email: String(email || ""), telefone, data_de_criacao: FieldValue.serverTimestamp() }
         : Object.fromEntries(Object.entries(safeExtras).filter(([field]) => field !== "email"));
+      const globalNameForV2 = initial || safeExtras.nome !== undefined ? nome : "";
       const profileNeedsWrite = initial || Object.keys(next).length > 0;
       const mappingNeedsWrite = bootstrapHml && !mapping.exists;
-      const memberNeedsWrite = !member.exists || !memberRoles(member).includes("CLIENTE");
+      const memberNeedsWrite = !member.exists || !existingRoles.includes("CLIENTE") || member.get("ativo") !== true;
       if (!profileNeedsWrite && !mappingNeedsWrite && !memberNeedsWrite) return { clientId: uid, created: false };
       if (mappingNeedsWrite) {
         tx.create(mappingRef, {
@@ -494,17 +503,27 @@ async function ensureClientProfile({ uid, email, displayName, extras, requestId,
         });
       }
       if (profileNeedsWrite) {
-        tx.set(clientRef, next, { merge: !initial });
-        tx.set(clientV2Ref, next, { merge: !initial });
+        tenantSet(tx, context, "clientes", uid, next, { merge: !initial });
       }
       if (!member.exists) {
-        tx.create(memberRef, { uid, papeis: ["CLIENTE"], ativo: true, origem_migracao: "legacy-antunes-v1" });
-      } else if (!Array.isArray(member.get("papeis")) || !member.get("papeis").includes("CLIENTE")) {
-        const existingRoles = Array.isArray(member.get("papeis")) ? member.get("papeis") : [];
-        tx.update(memberRef, { papeis: [...new Set([...existingRoles, "CLIENTE"])] });
+        tx.create(memberRef, {
+          uid,
+          papeis: ["CLIENTE"],
+          ativo: true,
+          origem_migracao: antunesDualWrite ? "legacy-antunes-v1" : "tenant-bootstrap-v1",
+        });
+      } else if (memberNeedsWrite) {
+        tx.update(memberRef, { papeis: rolesWith(member, "CLIENTE"), ativo: true });
       }
-      const currentData = current.exists ? current.data() : {};
-      if (profileNeedsWrite) tx.set(db.doc(`usuarios/${uid}`), clientIdentity(uid, { ...currentData, ...next }), { merge: true });
+      if (profileNeedsWrite) {
+        if (antunesDualWrite) {
+          const currentData = current.exists ? current.data() : {};
+          tx.set(db.doc(`usuarios/${uid}`), clientIdentity(uid, { ...currentData, ...next }), { merge: true });
+        } else if (globalNameForV2) {
+          // usuarios/{uid} é identidade global: o bootstrap V2 só pode espelhar nome.
+          tx.set(db.doc(`usuarios/${uid}`), { nome: globalNameForV2 }, { merge: true });
+        }
+      }
       return { clientId: uid, created: initial };
     },
   });
@@ -1891,7 +1910,8 @@ async function dispatch(request) {
   }
   switch (command) {
     case "cliente.garantir-perfil":
-      return ensureClientProfile({ uid, email: request.auth.token.email, displayName: request.auth.token.name, extras: payload.extras, requestId, bootstrapHml: allowClientBootstrap && projectId === "teste-483f6" });
+      onlyFields(payload, new Set(["command", "requestId", "context", "extras"]));
+      return ensureClientProfile({ uid, email: request.auth.token.email, displayName: request.auth.token.name, extras: payload.extras, requestId, context, bootstrapHml: allowClientBootstrap && projectId === "teste-483f6" });
     case "cliente.atualizar-perfil":
       onlyFields(payload, new Set(["command", "requestId", "context", "data"]));
       return updateClientProfile({ uid, data: payload.data, requestId, context });

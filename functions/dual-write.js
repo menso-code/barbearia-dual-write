@@ -596,8 +596,8 @@ async function requireTenantAdminMembership(tx, uid, tenantId) {
   }
 }
 
-async function barberOwnedBy(tx, uid, barberId) {
-  const barber = await tx.get(legacyRef("barbeiros", barberId));
+async function barberOwnedBy(tx, uid, barberId, context = null) {
+  const barber = await tx.get(context ? tenantPrimaryRef(context, "barbeiros", barberId) : legacyRef("barbeiros", barberId));
   return barber.exists && String(barber.get("uid_usuario") || "") === uid;
 }
 
@@ -912,23 +912,49 @@ async function createBlock({ uid, data, requestId }) {
   }});
 }
 
-async function deleteBlock({ uid, blockId, requestId }) {
+async function requireBlockPermission(tx, uid, context, block) {
+  if (!context) {
+    if (!await isAdmin(tx, uid) && !await barberOwnedBy(tx, uid, block.barbeiro_id)) {
+      error("permission-denied", "Permissão insuficiente.");
+    }
+    return;
+  }
+  const member = await tx.get(db.doc(`barbearias/${context.tenant.id}/membros/${uid}`));
+  const memberData = member.exists ? member.data() : null;
+  const roles = memberData ? memberRoles(memberData) : [];
+  const isTenantAdmin = roles.includes("ADMIN");
+  const isOwner = roles.includes("BARBEIRO") && await barberOwnedBy(tx, uid, block.barbeiro_id, context);
+  const isAntunesRootAdmin = context.tenant.id === ANTUNES_TENANT_ID && await isAdmin(tx, uid);
+  if (!isTenantAdmin && !isOwner && !isAntunesRootAdmin) error("permission-denied", "Permissão insuficiente.");
+}
+
+async function deleteBlock({ uid, blockId, requestId, context = null }) {
   const id = cleanText(blockId, 300);
-  return transactionalCommand({ operation: "bloqueio.remover", actorUid: uid, requestId, execute: async (tx) => {
-    const blockRef = legacyRef("bloqueios", id); const blockSnap = await tx.get(blockRef);
-    if (!blockSnap.exists) error("not-found", "BLOQUEIO_INDISPONIVEL");
+  const requestFingerprint = operationalPayloadFingerprint({ blockId: id });
+  return transactionalCommand({ operation: "bloqueio.remover", actorUid: uid, requestId, context, requestFingerprint, execute: async (tx) => {
+    const blockRef = context ? tenantPrimaryRef(context, "bloqueios", id) : legacyRef("bloqueios", id);
+    const blockSnap = await tx.get(blockRef);
+    if (!blockSnap.exists) {
+      if (context) return { blockId: id, removed: false };
+      error("not-found", "BLOQUEIO_INDISPONIVEL");
+    }
     const block = blockSnap.data();
-    if (!await isAdmin(tx, uid) && !await barberOwnedBy(tx, uid, block.barbeiro_id)) error("permission-denied", "Permissão insuficiente.");
+    await requireBlockPermission(tx, uid, context, block);
     const slots = appointmentBlocks(block.inicio, Number(block.duracao || minutes(block.fim) - minutes(block.inicio)));
-    const occupancyRefs = slots.map((slot) => legacyRef("ocupacoes", occupancyId(block.barbeiro_id, block.data, slot)));
+    const occupancyRefs = slots.map((slot) => context
+      ? tenantPrimaryRef(context, "ocupacoes", occupancyId(block.barbeiro_id, block.data, slot))
+      : legacyRef("ocupacoes", occupancyId(block.barbeiro_id, block.data, slot)));
     const occupancies = await Promise.all(occupancyRefs.map((ref) => tx.get(ref)));
-    mirrorDelete(tx, "bloqueios", id);
+    if (context) tenantDelete(tx, context, "bloqueios", id);
+    else mirrorDelete(tx, "bloqueios", id);
     occupancies.forEach((occupancy, index) => {
       if (occupancy.exists && occupancy.get("bloqueio_id") === id) {
-        mirrorDelete(tx, "ocupacoes", occupancyId(block.barbeiro_id, block.data, slots[index]));
+        const occupancyIdValue = occupancyId(block.barbeiro_id, block.data, slots[index]);
+        if (context) tenantDelete(tx, context, "ocupacoes", occupancyIdValue);
+        else mirrorDelete(tx, "ocupacoes", occupancyIdValue);
       }
     });
-    return { blockId: id };
+    return { blockId: id, removed: true };
   }});
 }
 
@@ -1532,7 +1558,7 @@ async function dispatch(request) {
     case "bloqueio.criar":
       return createBlock({ uid, data: payload.data, requestId });
     case "bloqueio.remover":
-      return deleteBlock({ uid, blockId: payload.blockId, requestId });
+      return deleteBlock({ uid, blockId: payload.blockId, requestId, context });
     case "admin.funcionamento.salvar":
     case "admin.abertura.salvar":
     case "admin.abertura.remover":

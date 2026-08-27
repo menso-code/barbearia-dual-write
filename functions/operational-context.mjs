@@ -21,6 +21,7 @@ export const OPERATIONAL_CONTEXT_MODES = Object.freeze({
 
 export const DYNAMIC_TENANT_COMMANDS = Object.freeze([
   "agenda.disponibilidade.obter",
+  "bloqueio.remover",
   "admin.estudio.identidade.salvar",
   "admin.funcionamento.salvar",
   "admin.servico.salvar",
@@ -50,6 +51,7 @@ const ROLE_BY_COMMAND = new Map([
 ]);
 const ALWAYS_V2_ONLY_COMMANDS = new Set(["admin.estudio.identidade.salvar"]);
 const HML_ANTUNES_COMPAT_COMMANDS = new Set([
+  "bloqueio.remover",
   "admin.funcionamento.salvar",
   "admin.servico.salvar",
   "admin.servico.remover",

@@ -118,7 +118,7 @@ const pending = { status: "PENDENTE", plano_id: "prime" };
 test("Slice 8 registra somente admin.assinatura.recusar e mantém 32 comandos", () => {
   assert.equal(allCommands.length, 32);
   assert.equal(DYNAMIC_TENANT_COMMANDS.includes(command), true);
-  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 14);
+  assert.equal(allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current)).length, 13);
   const handler = sourceBetween('if (action === "assinatura.recusar")', 'error("internal"');
   assert.match(handler, /onlyFields\(incoming, new Set\(\["id"\]\)\)/);
   assert.match(handler, /requireContextAdmin\(tx, uid, context\)/);
@@ -256,9 +256,9 @@ test("ROLLBACK_ON_FAILURE preserva a solicitação", () => {
   assert.equal(model.audit.size, 0);
 });
 
-test("OTHER_14_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
+test("OTHER_13_COMMANDS_FAIL_CLOSED_FOR_NEW_TENANTS e COMMAND_COUNT permanece 32", () => {
   const remaining = allCommands.filter((current) => !DYNAMIC_TENANT_COMMANDS.includes(current));
-  assert.equal(remaining.length, 14);
+  assert.equal(remaining.length, 13);
   assert.equal(remaining.includes("admin.assinatura.aprovar"), true);
   assert.equal(remaining.includes("admin.assinatura.cancelar"), false);
   assert.equal(remaining.includes(command), false);

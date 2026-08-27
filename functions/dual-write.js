@@ -541,17 +541,22 @@ async function updateClientProfile({ uid, data, requestId }) {
   });
 }
 
-async function requestSubscription({ uid, planId, requestId }) {
+async function requestSubscription({ uid, planId, requestId, context = null }) {
   const safePlanId = cleanText(planId, 200);
   if (!safePlanId) error("invalid-argument", "Plano inválido.");
-  const planRef = legacyRef("planos_assinatura", safePlanId);
-  const clientRef = legacyRef("clientes", uid);
+  const ref = (collection, id) => context
+    ? tenantPrimaryRef(context, collection, id)
+    : legacyRef(collection, id);
+  const planRef = ref("planos_assinatura", safePlanId);
+  const clientRef = ref("clientes", uid);
   const subscriptionId = `${uid}_${safePlanId}`;
-  const subscriptionRef = legacyRef("solicitacoes_assinatura", subscriptionId);
+  const subscriptionRef = ref("solicitacoes_assinatura", subscriptionId);
   return transactionalCommand({
     operation: "assinatura.solicitar",
     actorUid: uid,
     requestId,
+    context,
+    requestFingerprint: operationalPayloadFingerprint({ planId: safePlanId }),
     execute: async (tx) => {
       const [plan, client, existing] = await Promise.all([tx.get(planRef), tx.get(clientRef), tx.get(subscriptionRef)]);
       if (!plan.exists || plan.get("ativo") !== true) error("failed-precondition", "Plano indisponível.");
@@ -572,8 +577,11 @@ async function requestSubscription({ uid, planId, requestId }) {
         termos_aceitos: true,
         termos_aceitos_em: FieldValue.serverTimestamp(),
       };
-      tx.set(subscriptionRef, subscription);
-      tx.set(v2Ref("solicitacoes_assinatura", subscriptionId), subscription);
+      if (context) tenantSet(tx, context, "solicitacoes_assinatura", subscriptionId, subscription);
+      else {
+        tx.set(subscriptionRef, subscription);
+        tx.set(v2Ref("solicitacoes_assinatura", subscriptionId), subscription);
+      }
       return { subscriptionId, status: "PENDENTE" };
     },
   });
@@ -1649,7 +1657,8 @@ async function dispatch(request) {
     case "cliente.atualizar-perfil":
       return updateClientProfile({ uid, data: payload.data, requestId });
     case "assinatura.solicitar":
-      return requestSubscription({ uid, planId: payload.planId, requestId });
+      onlyFields(payload, new Set(["command", "requestId", "context", "planId"]));
+      return requestSubscription({ uid, planId: payload.planId, requestId, context });
     case "agenda.disponibilidade.obter": {
       onlyFields(payload, new Set(["command", "requestId", "data", "context"]));
       const data = extractCommandData(payload);

@@ -78,8 +78,10 @@ function isReadyTenantContext(tenantContext) {
 export async function resolveTenantMembershipAccess({
   user,
   resolveTenantContext,
+  inspectMembership,
   resolveOperationalUid,
   readMembership,
+  requiredRole = "CLIENTE",
   timeoutMs = ACCESS_CHECK_TIMEOUT_MS,
 } = {}) {
   if (!user?.uid) return { ...unauthenticatedAccess };
@@ -95,52 +97,78 @@ export async function resolveTenantMembershipAccess({
     return unavailableAccess(tenantContext);
   }
 
-  let uidOperacional = "";
-  try {
-    uidOperacional = await withAccessTimeout(
-      () => resolveOperationalUid(user),
-      timeoutMs,
-      "HML_MAPPING",
-    );
-  } catch (error) {
-    if (error?.message === "MAPEAMENTO_HOMOLOGACAO_AUSENTE") {
-      return {
-        ...unavailableAccess(tenantContext),
-        tenantStatus: tenantContext.status,
-        membershipStatus: "MISSING",
-        uidOperacional: "",
-      };
-    }
+  if (!TENANT_PAGE_ROLES || !Object.values(TENANT_PAGE_ROLES).includes(requiredRole)) {
     return unavailableAccess(tenantContext);
   }
 
-  let member;
+  // Compatibilidade de teste: a aplicação HML sempre fornece a callable.
+  // Este adaptador não é usado por access-control.js e mantém testes puros
+  // do núcleo independentes de SDKs do Firebase.
+  if (typeof inspectMembership !== "function") {
+    let uidOperacional;
+    try {
+      uidOperacional = await withAccessTimeout(() => resolveOperationalUid(user), timeoutMs, "HML_MAPPING");
+    } catch (error) {
+      if (error?.message === "MAPEAMENTO_HOMOLOGACAO_AUSENTE") {
+        return { ...unavailableAccess(tenantContext), tenantStatus: tenantContext.status, membershipStatus: "MISSING", uidOperacional: "" };
+      }
+      return unavailableAccess(tenantContext);
+    }
+    try {
+      const member = await withAccessTimeout(
+        () => readMembership({ tenantId: tenantContext.tenantId, uidOperacional }), timeoutMs, "MEMBERSHIP",
+      );
+      const roles = member?.ativo === true && Array.isArray(member.papeis)
+        ? [...new Set(member.papeis.filter((role) => typeof role === "string"))] : [];
+      return {
+        isAuthenticated: true,
+        isClient: roles.includes("CLIENTE"), isBarber: roles.includes("BARBEIRO"), isAdmin: roles.includes("ADMIN"),
+        barberId: roles.includes("BARBEIRO") ? member?.barbeiro_id || null : null,
+        tenantStatus: tenantContext.status, tenantContext,
+        membershipStatus: !member ? "MISSING" : member.ativo === true ? "ACTIVE" : "INACTIVE",
+        inspectionState: member?.ativo === true && roles.includes(requiredRole) ? "ACTIVE" : member?.ativo === true ? "ROLE_INSUFFICIENT" : "",
+        roles, uidOperacional,
+      };
+    } catch {
+      return unavailableAccess(tenantContext);
+    }
+  }
+
+  let inspection;
   try {
-    member = await withAccessTimeout(
-      () => readMembership({ tenantId: tenantContext.tenantId, uidOperacional }),
+    inspection = await withAccessTimeout(
+      () => inspectMembership({ hostname: tenantContext.hostname, surface: requiredRole }),
       timeoutMs,
-      "MEMBERSHIP",
+      "MEMBERSHIP_INSPECTION",
     );
   } catch {
     return unavailableAccess(tenantContext);
   }
 
-  const roles = member?.ativo === true && Array.isArray(member.papeis)
-    ? [...new Set(member.papeis.filter((role) => typeof role === "string"))]
-    : [];
-  const membershipStatus = !member ? "MISSING" : member.ativo === true ? "ACTIVE" : "INACTIVE";
+  const validInspection = inspection
+    && typeof inspection === "object"
+    && !Array.isArray(inspection)
+    && Object.keys(inspection).length === 2
+    && Object.hasOwn(inspection, "schema")
+    && Object.hasOwn(inspection, "state")
+    && inspection.schema === 1;
+  const state = validInspection ? inspection.state : "";
+  if (!["ACTIVE", "NOT_MEMBER", "INACTIVE", "ROLE_INSUFFICIENT"].includes(state)) {
+    return unavailableAccess(tenantContext);
+  }
+  const membershipStatus = state === "NOT_MEMBER" ? "MISSING" : state === "INACTIVE" ? "INACTIVE" : "ACTIVE";
 
   return {
     isAuthenticated: true,
-    isClient: roles.includes("CLIENTE"),
-    isBarber: roles.includes("BARBEIRO"),
-    isAdmin: roles.includes("ADMIN"),
-    barberId: roles.includes("BARBEIRO") ? member?.barbeiro_id || null : null,
+    isClient: state === "ACTIVE" && requiredRole === "CLIENTE",
+    isBarber: state === "ACTIVE" && requiredRole === "BARBEIRO",
+    isAdmin: state === "ACTIVE" && requiredRole === "ADMIN",
+    barberId: null,
     tenantStatus: tenantContext.status,
     tenantContext,
     membershipStatus,
-    roles,
-    uidOperacional,
+    inspectionState: state,
+    roles: [],
   };
 }
 
@@ -198,7 +226,7 @@ export function evaluateTenantPageAccess(access, requiredRole) {
     });
   }
 
-  if (requiredRole && !access.roles?.includes(requiredRole)) {
+  if (access.inspectionState === "ROLE_INSUFFICIENT" || (Array.isArray(access.roles) && access.roles.length > 0 && !access.roles.includes(requiredRole))) {
     return Object.freeze({
       allowed: false,
       code: "ROLE_INSUFFICIENT",

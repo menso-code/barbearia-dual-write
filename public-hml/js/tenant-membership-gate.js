@@ -2,7 +2,7 @@ import { getCurrentUserAccess } from "./access-control.js";
 import { deniedAccessRoute, evaluateTenantPageAccess } from "./tenant-membership-gate-core.mjs";
 
 export async function resolveTenantPageAccess(user, requiredRole) {
-  const access = await getCurrentUserAccess(user);
+  const access = await getCurrentUserAccess(user, requiredRole);
   return Object.freeze({ ...access, ...evaluateTenantPageAccess(access, requiredRole) });
 }
 

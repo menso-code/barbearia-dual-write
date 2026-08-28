@@ -5,6 +5,7 @@ import { collection, getDocs, onSnapshot, orderBy, query, where } from "https://
 import { blocosDoAtendimento, createTenantScopedAgenda, dataLocalHoje, horariosCandidatos, paraHorario, paraMinutos } from "./agenda.js";
 import { executarComandoOperacional } from "./operational-commands.js";
 import { initializeTenantContext, tenantContextIsReady } from "./tenant-context.js";
+import { renderTenantAccessGate, resolveTenantPageAccess } from "./tenant-membership-gate.js";
 import { abrirWhatsAppLembrete, buildReminderMessage, formatarNumeroWhatsApp, normalizarNumeroWhatsApp } from "./whatsapp.js";
 
 let tenantContext = null;
@@ -392,6 +393,14 @@ async function iniciarPainelBarbeiro() {
       return;
     }
     try {
+      const access = await resolveTenantPageAccess(user, "BARBEIRO");
+      if (!currentBarberBootstrap(user, generation)) return;
+      if (!renderTenantAccessGate({
+        access,
+        shell: $("#barber-shell"),
+        lockedScreen: $("#barber-locked"),
+        lockedMessage: $("#barber-locked-message"),
+      })) return;
       const uidOperacional = await obterUidOperacionalComPrimeiroVinculo(user);
       if (!currentBarberBootstrap(user, generation)) return;
       const snap = await getDocs(query(tenantCollection("barbeiros"), where("uid_usuario", "==", uidOperacional)));

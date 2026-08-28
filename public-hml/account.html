@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Barbearia Antunes — Minha conta</title><meta name="theme-color" content="#080a09"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" href="img/favicon-round.png"><link rel="apple-touch-icon" href="img/logo-192.png"><link rel="stylesheet" href="css/style.css"></head>
 <body class="account-shell">
+<div class="locked-screen" id="account-locked" hidden><div class="card"><h2>Acesso restrito</h2><p id="account-locked-message">Verificando acesso...</p><a class="btn btn-block" href="index.html">Voltar</a></div></div>
+<div id="account-shell" hidden>
 <header class="topbar"><a class="brand" href="app.html"><img class="brand-logo" src="img/logo.png" alt="Barbearia Antunes"> Barbearia<span class="brand-dot">Antunes</span></a><div class="nav-actions"><a class="btn btn-ghost btn-sm" href="app.html">Voltar para agenda</a></div></header>
 <main class="container account-page">
   <div class="account-intro"><span class="eyebrow">Área pessoal</span><h1>Minha conta</h1><p>Cuide do seu perfil, preferências e horários em um só lugar.</p></div>
@@ -15,4 +17,4 @@
       <section class="account-view" id="account-loyalty"><div class="section-head"><div><span class="eyebrow">Programa de fidelidade</span><h2>Fidelidade</h2></div></div><div class="account-card loyalty-card"><span class="eyebrow">Atendimentos concluídos</span><strong id="loyalty-count">0 atendimentos</strong><div class="loyalty-track"><span id="loyalty-progress"></span></div><span class="loyalty-ratio" id="loyalty-ratio">0 / 10 no ciclo atual</span><p id="loyalty-copy">Seu progresso aparece quando atendimentos forem concluídos.</p></div><div id="loyalty-reward"></div></section>
     </div>
   </div>
-</main><script type="module" src="js/account.js"></script><script defer src="js/pwa-install.js"></script></body></html>
+</main></div><script type="module" src="js/account.js"></script><script defer src="js/pwa-install.js"></script></body></html>

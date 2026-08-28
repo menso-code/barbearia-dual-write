@@ -11,8 +11,8 @@ import {
   getDoc,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { createTenantScopedAgenda, dataDentroDaJanelaDoCliente, limitesDataAgendamentoCliente } from "./agenda.js";
-import { getCurrentUserAccess } from "./access-control.js";
 import { executarComandoOperacional } from "./operational-commands.js";
+import { renderTenantAccessGate, resolveTenantPageAccess } from "./tenant-membership-gate.js";
 import {
   initializeTenantContext,
   tenantContextIsReady,
@@ -27,18 +27,15 @@ const tenantFailureMessages = Object.freeze({
 });
 
 function renderTenantFailure(status, message = "") {
-  document.querySelector(".topbar")?.setAttribute("hidden", "");
-  const container = document.querySelector(".container");
-  if (!container) return;
-  const state = document.createElement("section");
-  state.className = "empty-state";
-  state.setAttribute("role", "status");
-  const title = document.createElement("h2");
-  title.textContent = message || tenantFailureMessages[status] || "Não foi possível carregar o estabelecimento.";
-  const description = document.createElement("p");
-  description.textContent = "Confira o endereço acessado e tente novamente.";
-  state.append(title, description);
-  container.replaceChildren(state);
+  const lockedScreen = document.getElementById("app-locked");
+  const lockedMessage = document.getElementById("app-locked-message");
+  if (lockedMessage) lockedMessage.textContent = message || tenantFailureMessages[status] || "Não foi possível carregar o estabelecimento.";
+  renderTenantAccessGate({
+    access: { allowed: false, message: message || tenantFailureMessages[status] || "Não foi possível carregar o estabelecimento." },
+    shell: document.getElementById("app-shell"),
+    lockedScreen,
+    lockedMessage,
+  });
 }
 
 let appTenantConsumersStarted = false;
@@ -114,6 +111,14 @@ onAuthStateChanged(auth, async (user) => {
   resetTenantScopedState();
   usuarioAtual = user;
   try {
+    const access = await resolveTenantPageAccess(user, "CLIENTE");
+    if (!currentBootstrap(user, generation)) return;
+    if (!renderTenantAccessGate({
+      access,
+      shell: document.getElementById("app-shell"),
+      lockedScreen: document.getElementById("app-locked"),
+      lockedMessage: document.getElementById("app-locked-message"),
+    })) return;
     uidOperacionalAtual = await obterUidOperacionalComBootstrapCliente(user);
     if (!currentBootstrap(user, generation)) return;
     // O TenantContext seleciona somente o estabelecimento exibido. A
@@ -185,7 +190,7 @@ async function atualizarMenuPorPermissao(user, versao) {
 
   // Padrão seguro: antes da confirmação não existe link privilegiado no DOM.
   areaPrivilegiada.replaceChildren();
-  const acesso = await getCurrentUserAccess(user);
+  const acesso = await resolveTenantPageAccess(user, "CLIENTE");
   if (versao !== versaoPermissoes || auth.currentUser?.uid !== user.uid) return;
 
   const userRole = document.getElementById("user-role");

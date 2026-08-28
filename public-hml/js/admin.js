@@ -1,5 +1,10 @@
 import { auth, db } from "./firebase-config.js";
 import { obterUidOperacional } from "./homologation-identity.js";
+import { getCurrentUserAccess } from "./access-control.js";
+import {
+  initializeTenantContext,
+  tenantContextIsReady,
+} from "./tenant-context.js";
 import {
   onAuthStateChanged,
   signOut,
@@ -16,21 +21,32 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import {
   blocosDoAtendimento,
-  cancelarAgendamento as cancelarReserva,
-  concluirAgendamento,
-  criarAgendamento,
+  createTenantScopedAgenda,
   dataLocalHoje,
-  definirFuncionamento,
   horariosCandidatos,
-  horariosDisponiveis,
-  marcarNaoComparecimento,
-  obterFechamentoGlobal,
 } from "./agenda.js";
 import { abrirWhatsAppLembrete } from "./whatsapp.js";
 import { executarComandoOperacional } from "./operational-commands.js";
 
 const LIMITE_BARBEIROS = 5;
-let agendamentoParaConcluir = null;
+const V2_COLLECTIONS = Object.freeze({
+  clientes: "clientes",
+  barbeiros: "barbeiros",
+  servicos: "servicos",
+  agendamentos: "agendamentos",
+  bloqueios: "bloqueios",
+  configuracoes: "configuracoes",
+  fechamentos_globais: "fechamentos",
+  planos_assinatura: "planos_assinatura",
+  solicitacoes_assinatura: "assinaturas",
+  historico_assinaturas: "historico_assinaturas",
+});
+let adminTenantContext = null;
+let adminTenantAgenda = null;
+const operationalModalState = {
+  resolve: null,
+  previousFocus: null,
+};
 let barbeirosCache = [];
 let servicosCache = [];
 let planosAssinaturaCache = [];
@@ -41,9 +57,13 @@ let solicitacoesAssinaturaCarregadas = false;
 let solicitacoesAssinaturaCache = [];
 const clientesAssinaturasCache = new Map();
 const clientesNovoAgendamentoCache = new Map();
+let clientesAdministrativosCarregados = false;
+let agendaTodosCache = [];
+let agendaTodosCachePronto = false;
 let selecaoClienteNovoAgendamento = 0;
 const agendaEstado = {
   periodo: "todos",
+  dataSelecionada: "",
   barbeiro: "",
   status: "",
   servico: "",
@@ -52,17 +72,81 @@ const agendaEstado = {
   pagina: 1,
   tamanho: 20,
 };
+
+window.adminAgendaV2 = {
+  setDate(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    agendaEstado.dataSelecionada = date;
+    agendaEstado.periodo = "custom";
+    agendaEstado.pagina = 1;
+    carregarAgenda();
+  },
+};
 let buscaAgendaTimer = null;
+let agendaFeedbackTimer = null;
 let uidVinculoOriginal = "";
 let emailAcessoOriginal = "";
 let fechamentosCache = [];
 let fotoBarbeiroAtual = "";
 let fotoBarbeiroPendente = false;
 
+function requireAdminTenantContext() {
+  if (!tenantContextIsReady(adminTenantContext)) throw new Error("TENANT_CONTEXT_NOT_READY");
+  return adminTenantContext;
+}
+
+function tenantCollection(name) {
+  const context = requireAdminTenantContext();
+  const mapped = V2_COLLECTIONS[name];
+  if (!mapped) throw new Error("TENANT_COLLECTION_NOT_MAPPED");
+  return collection(db, "barbearias", context.tenantId, mapped);
+}
+
+function tenantDocument(name, id) {
+  const context = requireAdminTenantContext();
+  const mapped = V2_COLLECTIONS[name];
+  if (!mapped) throw new Error("TENANT_COLLECTION_NOT_MAPPED");
+  return doc(db, "barbearias", context.tenantId, mapped, id);
+}
+
 const FOTO_BARBEIRO_MAX_BYTES = 5 * 1024 * 1024;
 const FOTO_BARBEIRO_TARGET_BYTES = 500 * 1024;
 const FOTO_BARBEIRO_MAX_SIDE = 1600;
 const FOTO_BARBEIRO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+function publicarDadosClientes() {
+  const detail = {
+    clients: [...clientesNovoAgendamentoCache.entries()].map(([id, data]) => ({
+      id,
+      data,
+    })),
+    appointments: agendaTodosCache,
+    subscriptions: solicitacoesAssinaturaCache,
+    complete: clientesAdministrativosCarregados && agendaTodosCachePronto,
+  };
+  window.adminCustomersSourceSnapshot = detail;
+  window.dispatchEvent(new CustomEvent("admin:customers-data", { detail }));
+}
+
+async function carregarClientesAdministrativos({ atualizar = false } = {}) {
+  if (clientesAdministrativosCarregados && !atualizar) {
+    publicarDadosClientes();
+    return true;
+  }
+  try {
+    const clientes = await getDocs(tenantCollection("clientes"));
+    clientesNovoAgendamentoCache.clear();
+    clientes.forEach((cliente) => {
+      clientesNovoAgendamentoCache.set(cliente.id, cliente.data());
+    });
+    clientesAdministrativosCarregados = true;
+    publicarDadosClientes();
+    return true;
+  } catch (erro) {
+    console.warn("Não foi possível carregar os clientes cadastrados.", erro);
+    return false;
+  }
+}
 
 document.querySelector("[data-logout]")?.addEventListener("click", async () => {
   try {
@@ -77,22 +161,39 @@ document.querySelector("[data-logout]")?.addEventListener("click", async () => {
 // ----------------------------------------------------------------------------
 // Guarda de acesso: só entra quem tem doc em /admins/{uid}
 // ----------------------------------------------------------------------------
+function publicarEstadoAcessoAdmin(status) {
+  window.adminAccessState = status;
+  window.dispatchEvent(new CustomEvent("admin:access-state", { detail: { status } }));
+}
+
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
+    publicarEstadoAcessoAdmin("DENIED");
     window.location.href = "index.html";
     return;
   }
-  const uidOperacional = await obterUidOperacional(user);
-  const adminSnap = await getDoc(doc(db, "admins", uidOperacional));
-  if (!adminSnap.exists()) {
+  publicarEstadoAcessoAdmin("CHECKING");
+  const tenantContext = await initializeTenantContext();
+  if (!tenantContextIsReady(tenantContext)) {
+    publicarEstadoAcessoAdmin("DENIED");
     document.getElementById("locked-screen").style.display = "flex";
     return;
   }
+  const access = await getCurrentUserAccess(user);
+  if (!access.isAdmin) {
+    publicarEstadoAcessoAdmin("DENIED");
+    document.getElementById("locked-screen").style.display = "flex";
+    return;
+  }
+  adminTenantContext = tenantContext;
+  adminTenantAgenda = createTenantScopedAgenda(adminTenantContext);
+  publicarEstadoAcessoAdmin("READY");
   document.getElementById("admin-shell").style.display = "block";
   await carregarBarbeiros();
   await carregarServicos();
   await carregarAssinaturas();
   await carregarSolicitacoesAssinatura();
+  await carregarClientesAdministrativos();
   await carregarHistoricoAssinaturas();
   await carregarFuncionamento();
   await carregarAgenda();
@@ -152,7 +253,7 @@ const DIAS_SEMANA = [
   "Sexta-feira",
   "Sábado",
 ];
-const funcionamentoRef = doc(db, "configuracoes", "funcionamento");
+const funcionamentoRef = () => tenantDocument("configuracoes", "funcionamento");
 
 function formatarDataFechamento(data) {
   return String(data || "")
@@ -190,8 +291,7 @@ function renderizarFechamentos() {
         inicio === fim
           ? formatarDataFechamento(inicio)
           : `${formatarDataFechamento(inicio)} → ${formatarDataFechamento(fim)}`;
-      const tipo = grupo.tipo === "abertura" ? "Abertura excepcional" : inicio === fim ? "Dia inteiro" : "Período";
-      return `<tr><td>${periodo}</td><td>${grupo.motivo || "Exceção"}</td><td>${tipo}</td><td><button class="btn btn-danger btn-sm" type="button" data-remover-fechamento="${grupo.fechamento_id || grupo.id}">Remover</button></td></tr>`;
+      return `<tr><td>${periodo}</td><td>${grupo.motivo || "Fechamento excepcional"}</td><td>${inicio === fim ? "Dia inteiro" : "Período"}</td><td><button class="btn btn-danger btn-sm" type="button" data-remover-fechamento="${grupo.fechamento_id || grupo.id}">Remover</button></td></tr>`;
     })
     .join("");
   body
@@ -205,25 +305,19 @@ function renderizarFechamentos() {
 
 async function carregarFuncionamento() {
   const [configSnap, fechamentosSnap] = await Promise.all([
-    getDoc(funcionamentoRef),
+    getDoc(funcionamentoRef()),
     getDocs(
-      query(collection(db, "fechamentos_globais"), orderBy("data", "asc")),
+      query(tenantCollection("fechamentos_globais"), orderBy("data", "asc")),
     ),
   ]);
   const semanal = configSnap.exists()
     ? configSnap.data().dias_fechados_semana || {}
     : {};
-  definirFuncionamento(configSnap.exists() ? configSnap.data() : null);
   DIAS_SEMANA.forEach((_, dia) => {
     const campo = document.getElementById(`func-semana-${dia}`);
     if (campo)
       campo.checked =
         semanal[dia] === true || (semanal[dia] === undefined && dia === 0);
-      const period = configSnap.data()?.periodos_semana?.[dia]?.[0];
-      const inicio = document.getElementById(`func-inicio-${dia}`);
-      const fim = document.getElementById(`func-fim-${dia}`);
-      if (inicio) inicio.value = period?.inicio || (dia === 5 || dia === 6 || dia === 0 ? "08:30" : "08:30");
-      if (fim) fim.value = period?.fim || (dia === 5 || dia === 6 || dia === 0 ? "21:00" : "20:00");
   });
   fechamentosCache = fechamentosSnap.docs
     .map((snap) => ({ id: snap.id, ...snap.data() }))
@@ -237,19 +331,17 @@ document
     const botao = evento.currentTarget;
     const feedback = document.getElementById("funcionamento-feedback");
     const dias_fechados_semana = {};
-    const periodos_semana = {};
     DIAS_SEMANA.forEach((_, dia) => {
       dias_fechados_semana[dia] = Boolean(
         document.getElementById(`func-semana-${dia}`)?.checked,
       );
-      periodos_semana[dia] = [{ inicio: document.getElementById(`func-inicio-${dia}`)?.value || "08:30", fim: document.getElementById(`func-fim-${dia}`)?.value || "21:00" }];
     });
     botao.disabled = true;
     botao.textContent = "Salvando…";
     feedback.textContent = "";
     try {
       await executarComandoOperacional("admin.funcionamento.salvar", {
-        data: { intervalo_minutos: 30, periodos_semana, dias_fechados_semana },
+        data: { dias_fechados_semana },
       });
       feedback.textContent = "Funcionamento atualizado.";
     } catch (erro) {
@@ -266,7 +358,6 @@ function abrirModalFechamento() {
   document.getElementById("fechamento-msg").className = "msg";
   document.getElementById("fechamento-inicio").min = dataLocalHoje();
   document.getElementById("fechamento-fim-field").hidden = true;
-  document.getElementById("abertura-horarios-field").hidden = true;
   document.getElementById("modal-fechamento-global").classList.add("show");
 }
 
@@ -282,10 +373,8 @@ document
   .getElementById("fechamento-tipo")
   ?.addEventListener("change", (evento) => {
     const porPeriodo = evento.target.value === "periodo";
-    const abertura = evento.target.value === "abertura";
     document.getElementById("fechamento-fim-field").hidden = !porPeriodo;
     document.getElementById("fechamento-fim").required = porPeriodo;
-    document.getElementById("abertura-horarios-field").hidden = !abertura;
   });
 
 document
@@ -293,14 +382,6 @@ document
   ?.addEventListener("submit", async (evento) => {
     evento.preventDefault();
     const inicio = document.getElementById("fechamento-inicio").value;
-    if (document.getElementById("fechamento-tipo").value === "abertura") {
-      try {
-        await executarComandoOperacional("admin.abertura.salvar", { data: { data: inicio, inicio: document.getElementById("abertura-inicio").value, fim: document.getElementById("abertura-fim").value, motivo: document.getElementById("fechamento-motivo").value.trim() || "Abertura excepcional" } });
-        document.getElementById("modal-fechamento-global").classList.remove("show");
-        await carregarFuncionamento();
-      } catch (erro) { document.getElementById("fechamento-msg").textContent = "Não foi possível salvar a abertura excepcional."; document.getElementById("fechamento-msg").className = "msg show"; }
-      return;
-    }
     const fim =
       document.getElementById("fechamento-tipo").value === "periodo"
         ? document.getElementById("fechamento-fim").value
@@ -325,7 +406,7 @@ document
     }
     try {
       const jaFechados = await Promise.all(
-        intervalo.map((data) => getDoc(doc(db, "fechamentos_globais", data))),
+        intervalo.map((data) => getDoc(tenantDocument("fechamentos_globais", data))),
       );
       if (
         jaFechados.some((snap) => snap.exists() && snap.data().ativo !== false)
@@ -337,7 +418,7 @@ document
       }
       const existentes = await getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
@@ -400,13 +481,18 @@ let totalBarbeiros = 0;
 async function carregarBarbeiros() {
   const grid = document.getElementById("admin-barbeiros-grid");
   const snap = await getDocs(
-    query(collection(db, "barbeiros"), orderBy("nome")),
+    query(tenantCollection("barbeiros"), orderBy("nome")),
   );
   barbeirosCache = snap.docs.map((docSnap) => ({
     id: docSnap.id,
     ...docSnap.data(),
   }));
   totalBarbeiros = snap.size;
+  window.dispatchEvent(
+    new CustomEvent("admin:barbers-loaded", {
+      detail: { professionals: barbeirosCache },
+    }),
+  );
 
   document.getElementById("limite-barbeiros").textContent =
     `${totalBarbeiros} de ${LIMITE_BARBEIROS} barbeiros cadastrados.`;
@@ -583,7 +669,7 @@ async function atualizarStatusConta(uid = "") {
   }
   status.textContent = "Validando conta…";
   try {
-    const perfil = await getDoc(doc(db, "clientes", uid));
+    const perfil = await getDoc(tenantDocument("clientes", uid));
     if (!perfil.exists()) {
       status.textContent = "○ Conta não localizada";
       detalhes.textContent =
@@ -905,7 +991,7 @@ document
     btn.textContent = "Importando…";
 
     // evita duplicar serviços que já existem (compara pelo nome)
-    const existentesSnap = await getDocs(collection(db, "servicos"));
+    const existentesSnap = await getDocs(tenantCollection("servicos"));
     const nomesExistentes = new Set();
     existentesSnap.forEach((d) => nomesExistentes.add(d.data().nome));
 
@@ -930,7 +1016,7 @@ document
 async function carregarServicos() {
   const body = document.getElementById("admin-servicos-body");
   const snap = await getDocs(
-    query(collection(db, "servicos"), orderBy("nome")),
+    query(tenantCollection("servicos"), orderBy("nome")),
   );
   servicosCache = snap.docs.map((docSnap) => ({
     id: docSnap.id,
@@ -1031,6 +1117,30 @@ formServico.addEventListener("submit", async (e) => {
 // ----------------------------------------------------------------------------
 // Assinaturas — catálogo administrativo de planos (sem adesão de clientes)
 // ----------------------------------------------------------------------------
+const PLANOS_ASSINATURA_INICIAIS = [
+  {
+    id: "essencial",
+    nome: "Essencial",
+    descricao: "4 cortes por mês",
+    usos_mensais: 4,
+    servicos_incluidos: ["Corte"],
+  },
+  {
+    id: "prime",
+    nome: "Prime",
+    descricao: "4 cortes + 4 sobrancelhas por mês",
+    usos_mensais: 8,
+    servicos_incluidos: ["Corte", "Sobrancelha"],
+  },
+  {
+    id: "premium",
+    nome: "Premium",
+    descricao: "4 cortes + 4 barbas + 4 sobrancelhas por mês",
+    usos_mensais: 12,
+    servicos_incluidos: ["Corte", "Barba", "Sobrancelha"],
+  },
+];
+
 function servicosDoPlano(plano = {}) {
   const ids = Array.isArray(plano.servicos_ids) ? plano.servicos_ids : [];
   return ids
@@ -1079,12 +1189,27 @@ function precoParaCentavos(valor) {
   return Number.isFinite(preco) && preco > 0 ? Math.round(preco * 100) : 0;
 }
 
+async function garantirPlanosAssinaturaIniciais() {
+  await Promise.all(
+    PLANOS_ASSINATURA_INICIAIS.map(async ({ id, ...plano }) => {
+      const referencia = tenantDocument("planos_assinatura", id);
+      const existente = await getDoc(referencia);
+      if (!existente.exists()) {
+        await executarComandoOperacional("admin.plano.inicial", {
+          data: { id, ...plano },
+        });
+      }
+    }),
+  );
+}
+
 async function carregarAssinaturas() {
   const grid = document.getElementById("admin-assinaturas-grid");
   if (!grid || !auth.currentUser) return;
   try {
+    await garantirPlanosAssinaturaIniciais();
     const snap = await getDocs(
-      query(collection(db, "planos_assinatura"), orderBy("nome")),
+      query(tenantCollection("planos_assinatura"), orderBy("nome")),
     );
     planosAssinaturaCache = snap.docs.map((item) => ({
       id: item.id,
@@ -1189,6 +1314,9 @@ document
     const servicosIds = [...document.getElementById("a-servicos").selectedOptions]
       .map((option) => option.value)
       .filter((servicoId) => servicosCache.some((servico) => servico.id === servicoId));
+    const servicos = servicosIds
+      .map((servicoId) => servicosCache.find((servico) => servico.id === servicoId)?.nome)
+      .filter(Boolean);
     const dados = {
       nome: document.getElementById("a-nome").value.trim(),
       descricao: document.getElementById("a-descricao").value.trim(),
@@ -1198,6 +1326,7 @@ document
       preco_definido: true,
       usos_mensais: Number(document.getElementById("a-usos").value),
       servicos_ids: [...new Set(servicosIds)],
+      servicos_incluidos: [...new Set(servicos)],
       ativo: document.getElementById("a-ativo").value === "true",
     };
     if (
@@ -1313,7 +1442,7 @@ async function enriquecerSolicitacoesComCliente(solicitacoes) {
   await Promise.all(
     idsPendentes.map(async (clienteId) => {
       try {
-        const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+        const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
         clientesAssinaturasCache.set(
           clienteId,
           clienteSnap.exists() ? clienteSnap.data() : {},
@@ -1410,7 +1539,7 @@ async function prepararReservasLegadas(solicitacoes) {
   );
   if (!assinaturasPendentes.length) return solicitacoes;
 
-  const agendamentosSnap = await getDocs(collection(db, "agendamentos"));
+  const agendamentosSnap = await getDocs(tenantCollection("agendamentos"));
   const reservasPorAssinatura = new Map();
   agendamentosSnap.docs.forEach((item) => {
     const agendamento = item.data();
@@ -1511,7 +1640,7 @@ async function carregarSolicitacoesAssinatura({ atualizar = false } = {}) {
 
   grid.innerHTML = '<p class="limit-note">Carregando solicitações…</p>';
   try {
-    const snap = await getDocs(collection(db, "solicitacoes_assinatura"));
+    const snap = await getDocs(tenantCollection("solicitacoes_assinatura"));
     let todas = snap.docs
       .map((item) => ({ id: item.id, ...item.data() }))
       .sort(
@@ -1523,6 +1652,7 @@ async function carregarSolicitacoesAssinatura({ atualizar = false } = {}) {
     todas = await prepararReservasLegadas(todas);
     solicitacoesAssinaturaCache = await enriquecerSolicitacoesComCliente(todas);
     solicitacoesAssinaturaCarregadas = true;
+    publicarDadosClientes();
     renderizarSolicitacoesAssinatura();
   } catch (erro) {
     console.error("Falha ao carregar solicitações de assinatura.", erro);
@@ -1537,7 +1667,7 @@ async function carregarHistoricoAssinaturas() {
   try {
     const snap = await getDocs(
       query(
-        collection(db, "historico_assinaturas"),
+        tenantCollection("historico_assinaturas"),
         orderBy("utilizado_em", "desc"),
       ),
     );
@@ -1556,7 +1686,7 @@ async function carregarHistoricoAssinaturas() {
 
         if (!clientesAssinaturasCache.has(clienteId)) {
           try {
-            const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+            const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
             clientesAssinaturasCache.set(
               clienteId,
               clienteSnap.exists() ? clienteSnap.data() : {},
@@ -1748,26 +1878,50 @@ function rotuloStatus(status) {
   return rotulos[status] || "Agendado";
 }
 
-function acoesAgenda(agendamento) {
+function anunciarAtualizacaoAgenda(mensagem, variante = "success") {
+  const feedback = document.getElementById("agenda-atualizada-feedback");
+  if (!feedback) return;
+  feedback.textContent = mensagem;
+  feedback.className = `agenda-refresh-feedback${variante === "error" ? " is-error" : ""}`;
+  clearTimeout(agendaFeedbackTimer);
+  agendaFeedbackTimer = setTimeout(() => {
+    if (feedback.textContent === mensagem) {
+      feedback.textContent = "";
+      feedback.className = "agenda-refresh-feedback";
+    }
+  }, 2500);
+}
+
+function acoesOperacionaisAgenda(agendamento) {
   if (
     !["agendado", "cliente_chegou", "em_atendimento"].includes(
       agendamento.status,
     )
   )
-    return "";
-  const principal =
-    agendamento.status === "cliente_chegou" ? "Iniciar" : "Concluir";
-  const acaoPrincipal =
-    agendamento.status === "cliente_chegou"
-      ? "data-iniciar-agendamento"
-      : "data-concluir-agendamento";
+    return [];
+  const actions = [];
+  if (agendamento.status === "agendado") actions.push(["Cliente chegou", "data-chegada-agendamento"]);
+  if (agendamento.status === "cliente_chegou") actions.push(["Iniciar atendimento", "data-iniciar-agendamento"]);
+  if (agendamento.cliente_whatsapp) actions.push(["Enviar lembrete", "data-whatsapp"]);
+  actions.push(["Concluir", "data-concluir-agendamento"]);
+  actions.push(["Não compareceu", "data-falta-agendamento"]);
+  actions.push(["Cancelar", "data-cancelar-agendamento"]);
+  return actions.map(([label, attribute]) => ({ label, attribute, id: agendamento.id }));
+}
+
+window.adminAgendaActionDefinitions = acoesOperacionaisAgenda;
+
+function acoesAgenda(agendamento) {
+  const actions = acoesOperacionaisAgenda(agendamento);
+  if (!actions.length) return "";
+  const primary = actions.find((action) => ["data-iniciar-agendamento", "data-concluir-agendamento"].includes(action.attribute));
+  const secondary = actions.filter((action) => action !== primary);
+  const renderButton = (action, className = "btn btn-ghost btn-sm") =>
+    `<button class="${className}" ${action.attribute}="${escaparHtml(action.attribute === "data-whatsapp" ? agendamento.cliente_whatsapp : agendamento.id)}">${escaparHtml(action.label === "Iniciar atendimento" ? "Iniciar" : action.label === "Enviar lembrete" ? "Lembrete" : action.label)}</button>`;
   return `<div class="agenda-actions">
-    <button class="btn btn-primary btn-sm" ${acaoPrincipal}="${agendamento.id}">${principal}</button>
+    ${primary ? renderButton(primary, "btn btn-primary btn-sm") : ""}
     <details class="agenda-actions-menu"><summary aria-label="Mais ações">⋮</summary><div>
-      ${agendamento.status === "agendado" ? `<button class="btn btn-ghost btn-sm" data-chegada-agendamento="${agendamento.id}">Cliente chegou</button>` : ""}
-      ${agendamento.cliente_whatsapp ? `<button class="btn btn-ghost btn-sm" data-whatsapp="${agendamento.cliente_whatsapp}">Lembrete</button>` : ""}
-      <button class="btn btn-danger btn-sm" data-falta-agendamento="${agendamento.id}">Não compareceu</button>
-      <button class="btn btn-danger btn-sm" data-cancelar-agendamento="${agendamento.id}">Cancelar</button>
+      ${secondary.map((action) => renderButton(action, action.attribute === "data-falta-agendamento" || action.attribute === "data-cancelar-agendamento" ? "btn btn-danger btn-sm" : "btn btn-ghost btn-sm")).join("")}
     </div></details>
   </div>`;
 }
@@ -1778,20 +1932,32 @@ function conectarAcoesAgenda(elemento, agendamento) {
     ?.addEventListener("click", () => abrirWhatsApp(agendamento));
   elemento
     .querySelector("[data-concluir-agendamento]")
-    ?.addEventListener("click", () => abrirModalConclusao(agendamento));
+    ?.addEventListener("click", (evento) =>
+      concluirComConfirmacao(agendamento, evento.currentTarget),
+    );
   elemento
     .querySelector("[data-chegada-agendamento]")
-    ?.addEventListener("click", () =>
-      atualizarStatusOperacional(agendamento, "cliente_chegou"),
+    ?.addEventListener("click", (evento) =>
+      atualizarStatusOperacional(
+        agendamento,
+        "cliente_chegou",
+        evento.currentTarget,
+      ),
     );
   elemento
     .querySelector("[data-iniciar-agendamento]")
-    ?.addEventListener("click", () =>
-      atualizarStatusOperacional(agendamento, "em_atendimento"),
+    ?.addEventListener("click", (evento) =>
+      atualizarStatusOperacional(
+        agendamento,
+        "em_atendimento",
+        evento.currentTarget,
+      ),
     );
   elemento
     .querySelector("[data-falta-agendamento]")
-    ?.addEventListener("click", () => marcarNaoCompareceu(agendamento));
+    ?.addEventListener("click", (evento) =>
+      marcarNaoCompareceu(agendamento, evento.currentTarget),
+    );
   elemento
     .querySelector("[data-cancelar-agendamento]")
     ?.addEventListener("click", () =>
@@ -1831,6 +1997,9 @@ function isoSomarDias(base, dias) {
 }
 
 function periodoAgenda() {
+  if (agendaEstado.dataSelecionada) {
+    return { inicio: agendaEstado.dataSelecionada, fim: agendaEstado.dataSelecionada };
+  }
   const hoje = dataLocalHoje();
   if (agendaEstado.periodo === "hoje") return { inicio: hoje, fim: hoje };
   if (agendaEstado.periodo === "amanha") {
@@ -1884,7 +2053,7 @@ async function carregarAgenda() {
   body.innerHTML = `<tr><td colspan="7" style="color:var(--cinza)">Carregando agendamentos…</td></tr>`;
   cards.innerHTML = "";
   const periodo = periodoAgenda();
-  const restricoes = [collection(db, "agendamentos")];
+  const restricoes = [tenantCollection("agendamentos")];
   if (periodo)
     restricoes.push(
       where("data", ">=", periodo.inicio),
@@ -1894,6 +2063,11 @@ async function carregarAgenda() {
   const snap = await getDocs(query(...restricoes));
 
   if (snap.empty) {
+    if (!periodo) {
+      agendaTodosCache = [];
+      agendaTodosCachePronto = true;
+      publicarDadosClientes();
+    }
     body.innerHTML = `<tr><td colspan="7" style="color:var(--cinza)">Nenhum agendamento ainda.</td></tr>`;
     cards.innerHTML = `<div class="empty-state"><h3>Nenhum agendamento ainda</h3></div>`;
     document.getElementById("agenda-contador").textContent =
@@ -1901,6 +2075,16 @@ async function carregarAgenda() {
     document.getElementById("agenda-pagina").textContent = "Página 1 de 1";
     document.getElementById("agenda-anterior").disabled = true;
     document.getElementById("agenda-proxima").disabled = true;
+    window.dispatchEvent(
+      new CustomEvent("admin:agenda-rendered", {
+        detail: {
+          appointments: [],
+          allAppointments: [],
+          actionsByAppointment: {},
+          date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
+        },
+      }),
+    );
     return;
   }
 
@@ -1915,7 +2099,7 @@ async function carregarAgenda() {
       let whatsapp = normalizarWhatsApp(a.cliente_whatsapp);
       if (a.cliente_id) {
         try {
-          const clienteSnap = await getDoc(doc(db, "clientes", a.cliente_id));
+          const clienteSnap = await getDoc(tenantDocument("clientes", a.cliente_id));
           if (clienteSnap.exists()) {
             const cliente = clienteSnap.data();
             nomeCliente = cliente.nome || cliente.displayName || nomeCliente;
@@ -1940,6 +2124,12 @@ async function carregarAgenda() {
       };
     }),
   );
+
+  if (!periodo) {
+    agendaTodosCache = agendamentos;
+    agendaTodosCachePronto = true;
+    publicarDadosClientes();
+  }
 
   const busca = agendaEstado.busca.trim().toLocaleLowerCase("pt-BR");
   const filtrados = agendamentos.filter((a) => {
@@ -1985,6 +2175,18 @@ async function carregarAgenda() {
     inicioPagina,
     inicioPagina + agendaEstado.tamanho,
   );
+  window.dispatchEvent(
+    new CustomEvent("admin:agenda-rendered", {
+      detail: {
+        appointments: filtrados,
+        allAppointments: agendamentos,
+        actionsByAppointment: Object.fromEntries(
+          agendamentos.map((appointment) => [appointment.id, acoesOperacionaisAgenda(appointment)]),
+        ),
+        date: agendaEstado.dataSelecionada || (agendaEstado.periodo === "hoje" ? dataLocalHoje() : ""),
+      },
+    }),
+  );
   document.getElementById("agenda-contador").textContent =
     `${filtrados.length} agendamento${filtrados.length === 1 ? "" : "s"} encontrado${filtrados.length === 1 ? "" : "s"}`;
   document.getElementById("agenda-pagina").textContent =
@@ -2002,6 +2204,7 @@ async function carregarAgenda() {
   cards.innerHTML = "";
   pagina.forEach((a) => {
     const tr = document.createElement("tr");
+    tr.dataset.agendaId = a.id;
     tr.innerHTML = `
       <td><div class="agenda-date">${escaparHtml(formatarData(a.data))}<span>${escaparHtml(a.horario)}</span></div></td>
       <td class="agenda-client" title="${escaparHtml(a.cliente_nome)}">${escaparHtml(a.cliente_nome || "—")}</td>
@@ -2016,6 +2219,7 @@ async function carregarAgenda() {
 
     const card = document.createElement("article");
     card.className = "agenda-card";
+    card.dataset.agendaId = a.id;
     card.innerHTML = `<div class="agenda-card-top"><div class="agenda-card-time">${escaparHtml(a.horario)}<span>${escaparHtml(formatarData(a.data))}</span></div><span class="status-pill ${classeStatus(a.status)}">${rotuloStatus(a.status)}</span></div>
       <div><h3>${escaparHtml(a.cliente_nome || "—")}</h3><span class="agenda-card-phone">${formatarWhatsApp(a.cliente_whatsapp)}</span></div>
       <div class="agenda-card-details"><div><strong>Barbeiro</strong><span>${escaparHtml(a.barbeiro_nome || "—")}</span></div><div><strong>Serviço</strong><span>${escaparHtml(a.servico_nome || "—")}</span></div></div>${acoesAgenda(a)}`;
@@ -2024,10 +2228,11 @@ async function carregarAgenda() {
   });
 }
 
-document.querySelectorAll("[data-periodo]").forEach((botao) =>
-  botao.addEventListener("click", () => {
-    agendaEstado.periodo = botao.dataset.periodo;
-    agendaEstado.pagina = 1;
+  document.querySelectorAll("[data-periodo]").forEach((botao) =>
+    botao.addEventListener("click", () => {
+      agendaEstado.periodo = botao.dataset.periodo;
+      agendaEstado.dataSelecionada = "";
+      agendaEstado.pagina = 1;
     carregarAgenda();
   }),
 );
@@ -2084,6 +2289,7 @@ document
   ?.addEventListener("click", () => {
     Object.assign(agendaEstado, {
       periodo: "todos",
+      dataSelecionada: "",
       barbeiro: "",
       status: "",
       servico: "",
@@ -2104,127 +2310,229 @@ document.getElementById("agenda-proxima")?.addEventListener("click", () => {
   carregarAgenda();
 });
 
-function abrirModalConclusao(agendamento) {
-  agendamentoParaConcluir = agendamento;
-  document.getElementById("completion-details").innerHTML = `
+function detalhesAgendamentoOperacional(agendamento) {
+  return `
     <div><dt>Cliente</dt><dd>${escaparHtml(agendamento.cliente_nome || "—")}</dd></div>
     <div><dt>Barbeiro</dt><dd>${escaparHtml(agendamento.barbeiro_nome || "—")}</dd></div>
     <div><dt>Serviço</dt><dd>${escaparHtml(agendamento.servico_nome || "—")}</dd></div>
     <div><dt>Data e horário</dt><dd>${escaparHtml(formatarData(agendamento.data))} às ${escaparHtml(agendamento.horario || "—")}</dd></div>`;
-  document.getElementById("modal-concluir-atendimento").classList.add("show");
 }
 
-function fecharModalConclusao() {
-  document
-    .getElementById("modal-concluir-atendimento")
-    .classList.remove("show");
-  agendamentoParaConcluir = null;
+function fecharModalOperacional(confirmado = false) {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  const modal = backdrop?.querySelector("[role=dialog]");
+  if (!backdrop) return;
+  backdrop.classList.remove("show");
+  modal?.classList.remove("modal-operational--warning", "modal-operational--destructive");
+  const resolver = operationalModalState.resolve;
+  const previousFocus = operationalModalState.previousFocus;
+  operationalModalState.resolve = null;
+  operationalModalState.previousFocus = null;
+  resolver?.(confirmado);
+  if (previousFocus && typeof previousFocus.focus === "function") {
+    window.requestAnimationFrame(() => previousFocus.focus());
+  }
 }
 
-document
-  .getElementById("btn-voltar-conclusao")
-  ?.addEventListener("click", fecharModalConclusao);
-document
-  .getElementById("btn-confirmar-conclusao")
-  ?.addEventListener("click", async () => {
-    if (!agendamentoParaConcluir) return;
-    const btn = document.getElementById("btn-confirmar-conclusao");
-    btn.disabled = true;
-    btn.textContent = "Concluindo…";
-    try {
-      await concluirAgendamento(db, agendamentoParaConcluir, {
-        validarDuplicidade: true,
-      });
-      fecharModalConclusao();
-      await carregarAgenda();
-      await carregarRelatorio();
-    } catch (err) {
-      const texto =
-        err.message === "CREDITO_INDISPONIVEL"
-          ? "Não há crédito disponível nesta assinatura para concluir este atendimento."
-          : err.message === "ASSINATURA_SEM_VINCULO"
-            ? "Este agendamento de assinatura não possui vínculo de crédito válido."
-            : "Não foi possível concluir o atendimento. Tente novamente.";
-      alert(texto);
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Confirmar conclusão";
-    }
+function abrirModalOperacional({ type, title, description, appointment, confirmLabel, variant = "primary" }) {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  const modal = backdrop?.querySelector("[role=dialog]");
+  const eyebrow = document.getElementById("operational-modal-eyebrow");
+  const titleElement = document.getElementById("operational-modal-title");
+  const descriptionElement = document.getElementById("operational-modal-description");
+  const details = document.getElementById("operational-modal-details");
+  const confirmButton = document.getElementById("btn-operational-confirm");
+  if (!backdrop || !modal || !eyebrow || !titleElement || !descriptionElement || !details || !confirmButton) return Promise.resolve(false);
+
+  operationalModalState.previousFocus = document.activeElement;
+  eyebrow.textContent = type;
+  titleElement.textContent = title;
+  descriptionElement.textContent = description;
+  details.innerHTML = detalhesAgendamentoOperacional(appointment);
+  confirmButton.textContent = confirmLabel;
+  confirmButton.disabled = false;
+  modal.classList.remove("modal-operational--warning", "modal-operational--destructive");
+  if (variant === "warning" || variant === "destructive") modal.classList.add(`modal-operational--${variant}`);
+  backdrop.classList.add("show");
+  window.requestAnimationFrame(() => confirmButton.focus());
+  return new Promise((resolve) => { operationalModalState.resolve = resolve; });
+}
+
+document.getElementById("btn-operational-cancel")?.addEventListener("click", () => fecharModalOperacional(false));
+document.getElementById("btn-operational-confirm")?.addEventListener("click", () => {
+  const button = document.getElementById("btn-operational-confirm");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.textContent = "Processando…";
+  fecharModalOperacional(true);
+});
+document.getElementById("modal-operacional-confirmacao")?.addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) fecharModalOperacional(false);
+});
+document.addEventListener("keydown", (event) => {
+  const backdrop = document.getElementById("modal-operacional-confirmacao");
+  if (event.key === "Escape" && backdrop?.classList.contains("show")) {
+    event.preventDefault();
+    fecharModalOperacional(false);
+  }
+});
+
+async function concluirComConfirmacao(agendamento, sourceButton) {
+  const confirmado = await abrirModalOperacional({
+    type: "Confirmar presença",
+    title: "Concluir atendimento?",
+    description: "Confirme que o cliente compareceu e o atendimento foi realizado.",
+    appointment: agendamento,
+    confirmLabel: "Confirmar conclusão",
   });
+  if (!confirmado) return;
+  const textoOriginal = sourceButton?.textContent || "";
+  if (sourceButton) { sourceButton.disabled = true; sourceButton.textContent = "Concluindo…"; }
+  try {
+    await adminTenantAgenda.concluirAgendamento(db, agendamento, { validarDuplicidade: true });
+    await carregarAgenda();
+    await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Atendimento concluído.");
+  } catch (err) {
+    const texto = err.message === "CREDITO_INDISPONIVEL"
+      ? "Não há crédito disponível nesta assinatura para concluir este atendimento."
+      : err.message === "ASSINATURA_SEM_VINCULO"
+        ? "Este agendamento de assinatura não possui vínculo de crédito válido."
+        : "Não foi possível concluir o atendimento. Tente novamente.";
+    anunciarAtualizacaoAgenda(texto, "error");
+    console.error(err);
+  } finally {
+    if (sourceButton) { sourceButton.disabled = false; sourceButton.textContent = textoOriginal; }
+  }
+}
 
 function abrirWhatsApp(agendamento) {
   abrirWhatsAppLembrete(agendamento);
 }
 
 async function cancelarAgendamentoAdmin(agendamento, btn) {
-  if (
-    !confirm(
-      "Cancelar este agendamento? Após cancelar, o WhatsApp abrirá com a mensagem para o cliente.",
-    )
-  )
-    return;
+  const confirmado = await abrirModalOperacional({
+    type: "Ação destrutiva",
+    title: "Cancelar agendamento",
+    description: "Confirme o cancelamento do agendamento selecionado.",
+    appointment: agendamento,
+    confirmLabel: "Cancelar agendamento",
+    variant: "destructive",
+  });
+  if (!confirmado) return;
   btn.disabled = true;
   try {
-    await cancelarReserva(db, agendamento);
+    await adminTenantAgenda.cancelarAgendamento(db, agendamento);
     abrirWhatsAppCancelamento(agendamento);
     await carregarAgenda();
     await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Agendamento cancelado.");
   } catch (err) {
-    alert("Não foi possível cancelar o agendamento. Tente novamente.");
+    anunciarAtualizacaoAgenda("Não foi possível cancelar o agendamento. Tente novamente.", "error");
     btn.disabled = false;
   }
 }
 
-async function atualizarStatusOperacional(agendamento, status) {
+async function atualizarStatusOperacional(agendamento, status, btn) {
   const mensagens = {
-    cliente_chegou: "Registrar que o cliente chegou?",
-    em_atendimento: "Iniciar este atendimento?",
+    cliente_chegou: {
+      type: "Confirmar chegada",
+      title: "Cliente chegou?",
+      description: "Confirme que o cliente chegou ao estabelecimento.",
+      confirmLabel: "Confirmar chegada",
+    },
+    em_atendimento: {
+      type: "Atendimento",
+      title: "Iniciar atendimento?",
+      description: "Confirme o início do atendimento deste cliente.",
+      confirmLabel: "Iniciar atendimento",
+    },
   };
-  if (!confirm(mensagens[status])) return;
+  const confirmado = await abrirModalOperacional({ ...mensagens[status], appointment: agendamento });
+  if (!confirmado) return;
+  const textoOriginal = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Atualizando…";
+  }
   try {
     await executarComandoOperacional(`agenda.${status}`, {
-      appointmentId: agendamento.id,
+      data: { appointmentId: agendamento.id },
     });
     await carregarAgenda();
+    anunciarAtualizacaoAgenda("Status atualizado.");
   } catch (err) {
-    alert(
+    anunciarAtualizacaoAgenda(
       err.code === "permission-denied"
         ? "Você não possui permissão para alterar este atendimento."
         : "Não foi possível atualizar o atendimento.",
+      "error",
     );
     console.error("Falha ao atualizar status operacional.", err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 }
 
-async function marcarNaoCompareceu(agendamento) {
+async function marcarNaoCompareceu(agendamento, btn) {
   const avisoAssinatura =
     agendamento.origem === "assinatura"
       ? " Como é um atendimento por assinatura, 1 crédito será consumido."
       : "";
-  if (
-    !confirm(
-      `Marcar este cliente como não compareceu? Esta ação não contará para fidelidade nem faturamento.${avisoAssinatura}`,
-    )
-  )
-    return;
+  const confirmado = await abrirModalOperacional({
+    type: "Atenção",
+    title: "Cliente não compareceu?",
+    description: `Confirme que o cliente não compareceu ao horário agendado.${avisoAssinatura}`,
+    appointment: agendamento,
+    confirmLabel: "Confirmar ausência",
+    variant: "warning",
+  });
+  if (!confirmado) return;
+  const textoOriginal = btn?.textContent || "";
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Atualizando…";
+  }
   try {
-    await marcarNaoComparecimento(db, agendamento, {
+    await adminTenantAgenda.marcarNaoComparecimento(db, agendamento, {
       validarDuplicidade: true,
     });
     await carregarAgenda();
     await carregarRelatorio();
+    anunciarAtualizacaoAgenda("Agendamento atualizado.");
   } catch (err) {
-    alert(
+    anunciarAtualizacaoAgenda(
       err.message === "CREDITO_INDISPONIVEL"
         ? "Não há crédito disponível nesta assinatura."
         : err.code === "permission-denied"
           ? "Você não possui permissão para alterar este atendimento."
           : "Não foi possível marcar a falta.",
+      "error",
     );
     console.error("Falha ao marcar não compareceu.", err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 }
+
+window.addEventListener("admin:pending-action", (event) => {
+  const appointment = event.detail?.appointment;
+  const action = event.detail?.action?.attribute;
+  const button = event.detail?.button;
+  if (!appointment || !action) return;
+  if (action === "data-whatsapp") return abrirWhatsApp(appointment);
+  if (action === "data-chegada-agendamento") return atualizarStatusOperacional(appointment, "cliente_chegou", button);
+  if (action === "data-iniciar-agendamento") return atualizarStatusOperacional(appointment, "em_atendimento", button);
+  if (action === "data-concluir-agendamento") return concluirComConfirmacao(appointment, button);
+  if (action === "data-falta-agendamento") return marcarNaoCompareceu(appointment, button);
+  if (action === "data-cancelar-agendamento") return cancelarAgendamentoAdmin(appointment, button);
+});
 
 function abrirWhatsAppCancelamento(agendamento) {
   const numero = String(agendamento.cliente_whatsapp || "").replace(/\D/g, "");
@@ -2588,31 +2896,31 @@ async function carregarRelatorio() {
     ] = await Promise.all([
       getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
       ),
       getDocs(
         query(
-          collection(db, "agendamentos"),
+          tenantCollection("agendamentos"),
           where("data", ">=", periodoAnterior.inicio),
           where("data", "<=", periodoAnterior.fim),
         ),
       ),
-      getDocs(collection(db, "servicos")),
-      getDocs(collection(db, "barbeiros")),
-      getDoc(funcionamentoRef),
+      getDocs(tenantCollection("servicos")),
+      getDocs(tenantCollection("barbeiros")),
+      getDoc(funcionamentoRef()),
       getDocs(
         query(
-          collection(db, "fechamentos_globais"),
+          tenantCollection("fechamentos_globais"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
       ),
       getDocs(
         query(
-          collection(db, "bloqueios"),
+          tenantCollection("bloqueios"),
           where("data", ">=", inicio),
           where("data", "<=", fim),
         ),
@@ -2784,6 +3092,7 @@ async function carregarRelatorio() {
 const modalNovoAgendamento = document.getElementById("modal-novo-agendamento");
 const formNovoAgendamento = document.getElementById("form-novo-agendamento");
 const msgNovoAgendamento = document.getElementById("novo-agendamento-msg");
+let pendingNewAppointmentPrefill = null;
 
 function contatoDoClienteNovoAgendamento(dados = {}) {
   const telefone = [
@@ -2811,8 +3120,11 @@ function mensagemNovoAgendamento(texto, tipo = "err") {
   msgNovoAgendamento.className = `msg show ${tipo}`;
 }
 
-async function abrirNovoAgendamento() {
+async function abrirNovoAgendamento(prefill = {}) {
   formNovoAgendamento.reset();
+  pendingNewAppointmentPrefill = prefill.barbeiroId || prefill.data || prefill.horario
+    ? { ...prefill }
+    : null;
   msgNovoAgendamento.className = "msg";
   document.getElementById("novo-data").min = dataLocalHoje();
   const selectBarbeiro = document.getElementById("novo-barbeiro");
@@ -2830,21 +3142,26 @@ async function abrirNovoAgendamento() {
 
   const selectCliente = document.getElementById("novo-cliente");
   selectCliente.innerHTML = `<option value="">Cliente presencial / novo</option>`;
-  clientesNovoAgendamentoCache.clear();
-  try {
-    const clientes = await getDocs(collection(db, "clientes"));
-    clientes.forEach((cliente) => {
-      const dados = cliente.data();
-      clientesNovoAgendamentoCache.set(cliente.id, dados);
-      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), cliente.id));
+  const carregouClientes = await carregarClientesAdministrativos();
+  if (carregouClientes) {
+    clientesNovoAgendamentoCache.forEach((dados, clienteId) => {
+      selectCliente.add(new Option(rotuloClienteNovoAgendamento(dados), clienteId));
     });
-  } catch (err) {
+  } else {
     mensagemNovoAgendamento(
       "Não foi possível carregar os clientes cadastrados.",
     );
   }
+  if (prefill.barbeiroId && [...selectBarbeiro.options].some((option) => option.value === prefill.barbeiroId)) {
+    selectBarbeiro.value = prefill.barbeiroId;
+  }
+  if (prefill.data) {
+    document.getElementById("novo-data").value = prefill.data;
+  }
   modalNovoAgendamento.classList.add("show");
 }
+
+window.adminOpenNewAppointment = abrirNovoAgendamento;
 
 document
   .getElementById("btn-novo-agendamento")
@@ -2869,7 +3186,7 @@ document.getElementById("novo-cliente")?.addEventListener("change", async (event
 
   let dados = clientesNovoAgendamentoCache.get(clienteId) || {};
   try {
-    const clienteSnap = await getDoc(doc(db, "clientes", clienteId));
+    const clienteSnap = await getDoc(tenantDocument("clientes", clienteId));
     if (clienteSnap.exists()) {
       dados = clienteSnap.data();
       clientesNovoAgendamentoCache.set(clienteId, dados);
@@ -2903,7 +3220,7 @@ async function atualizarHorariosNovoAgendamento() {
     return;
   }
   try {
-    const fechamento = await obterFechamentoGlobal(db, data);
+    const fechamento = await adminTenantAgenda.obterFechamentoGlobal(db, data);
     if (fechamento.fechado) {
       selectHorario.innerHTML = `<option value="">Barbearia fechada neste dia</option>`;
       mensagemNovoAgendamento(
@@ -2912,7 +3229,7 @@ async function atualizarHorariosNovoAgendamento() {
       return;
     }
     msgNovoAgendamento.className = "msg";
-    const horarios = await horariosDisponiveis(db, {
+    const horarios = await adminTenantAgenda.horariosDisponiveis(db, {
       barbeiro,
       barbeiroId: barbeiro.id,
       data,
@@ -2922,6 +3239,14 @@ async function atualizarHorariosNovoAgendamento() {
     horarios.forEach((horario) =>
       selectHorario.add(new Option(horario, horario)),
     );
+    const prefill = pendingNewAppointmentPrefill;
+    if (prefill
+      && prefill.barbeiroId === barbeiro.id
+      && prefill.data === data
+      && [...selectHorario.options].some((option) => option.value === prefill.horario)) {
+      selectHorario.value = prefill.horario;
+      pendingNewAppointmentPrefill = null;
+    }
   } catch (err) {
     selectHorario.innerHTML = `<option value="">Não foi possível consultar os horários</option>`;
     console.error(err);
@@ -2955,7 +3280,7 @@ formNovoAgendamento?.addEventListener("submit", async (event) => {
   btn.disabled = true;
   btn.textContent = "Criando…";
   try {
-    await criarAgendamento(db, {
+    await adminTenantAgenda.criarAgendamento(db, {
       cliente_id: cliente.value || "",
       cliente_nome: nome,
       cliente_whatsapp: whatsapp,

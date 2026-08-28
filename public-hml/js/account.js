@@ -1,10 +1,11 @@
 import { auth, db } from "./firebase-config.js";
-import { obterUidOperacional } from "./homologation-identity.js";
+import { obterUidOperacionalComBootstrapCliente } from "./homologation-identity.js?v=2026082015";
 import { executarComandoOperacional } from "./operational-commands.js";
+import { initializeTenantContext, tenantContextIsReady } from "./tenant-context.js";
 import { onAuthStateChanged, signOut, updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
-let user; let operationalUid = ""; let profile = {}; let appointments = [];
+let user; let clientUid = ""; let profile = {}; let appointments = []; let tenantContext = null; let accountBootstrapGeneration = 0;
 const $ = (id) => document.getElementById(id);
 const initials = (name) => String(name || "BA").split(/\s+/).filter(Boolean).slice(0,2).map((v)=>v[0]).join("").toUpperCase();
 const fmtDate = (date) => date ? date.split("-").reverse().join("/") : "—";
@@ -16,6 +17,30 @@ const AVATAR_TARGET_BYTES = 500 * 1024;
 const AVATAR_MAX_SIDE = 1600;
 const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const avatarAtual = () => profile.avatar_data || "";
+function tenantCollection(name) {
+  if (!tenantContextIsReady(tenantContext)) throw new Error("TENANT_CONTEXT_NOT_READY");
+  return collection(db, "barbearias", tenantContext.tenantId, name);
+}
+function tenantDocument(name, id) {
+  if (!tenantContextIsReady(tenantContext)) throw new Error("TENANT_CONTEXT_NOT_READY");
+  return doc(db, "barbearias", tenantContext.tenantId, name, id);
+}
+function ensureTenantAccountReady(messageId) {
+  if (tenantContextIsReady(tenantContext)) return true;
+  message(messageId, "Este estabelecimento não está disponível.", "err");
+  return false;
+}
+function renderGlobalAccountData(current) {
+  $("profile-name").value = current.displayName || "";
+  $("profile-email").value = current.email || "";
+  setAvatar(current.photoURL || "", current.displayName || "");
+}
+function currentAccountBootstrap(current, generation) {
+  return generation === accountBootstrapGeneration && auth.currentUser?.uid === current.uid;
+}
+function assertCurrentAccountBootstrap(current, generation) {
+  if (!currentAccountBootstrap(current, generation)) throw new Error("STALE_ACCOUNT_BOOTSTRAP");
+}
 function setAvatar(data, name) { [$("profile-avatar")].forEach((el)=>{ if(data){el.style.backgroundImage=`url(${data})`;el.textContent="";}else{el.style.backgroundImage="";el.textContent=initials(name);} }); }
 function arquivoDeImagemAceito(file) { return AVATAR_TYPES.includes(String(file.type || "").toLowerCase()) || /\.(jpe?g|png|webp)$/i.test(file.name || ""); }
 function blobDoCanvas(canvas, tipo, qualidade) { return new Promise((resolve) => canvas.toBlob(resolve, tipo, qualidade)); }
@@ -64,15 +89,21 @@ async function otimizarAvatar(file) {
   } finally { fechar(); }
 }
 function bookingCard(a, history=false) { if(!a) return `<div class="empty-state"><h3>Seu próximo corte começa aqui.</h3><p>Escolha um barbeiro e encontre seu próximo horário.</p><a class="btn btn-primary" href="app.html">Agendar horário</a></div>`; const link=history?`app.html?barbeiro=${encodeURIComponent(a.barbeiro_id||"")}&servico=${encodeURIComponent(a.servico_id||"")}`:"app.html"; const status=a.status||"agendado"; const label=status==="concluido"?"✓ Concluído":status; return `<article class="personal-booking"><div><span class="status-pill status-${status === "cancelado" ? "cancelado" : status === "concluido" ? "concluido" : "agendado"}">${label}</span><h3>${a.servico_nome || "Serviço"}</h3><p>${fmtDate(a.data)} às ${a.horario} · com ${a.barbeiro_nome || "barbeiro"}</p></div><div class="booking-actions"><a class="btn btn-ghost btn-sm" href="${link}">${history ? "Agendar novamente" : "Ver detalhes"}</a></div></article>`; }
-async function loadOptions() { const [barbers, services] = await Promise.all([getDocs(query(collection(db,"barbeiros"),where("ativo","==",true))),getDocs(collection(db,"servicos"))]); barbers.forEach((d)=>$("favorite-barber").insertAdjacentHTML("beforeend",`<option value="${d.id}">${d.data().nome}</option>`)); services.forEach((d)=>$("favorite-service").insertAdjacentHTML("beforeend",`<option value="${d.id}">${d.data().nome}</option>`)); }
-async function loadAccount() {
-  const ref = doc(db, "clientes", operationalUid);
+async function loadOptions(current, generation) { const [barbers, services] = await Promise.all([getDocs(query(tenantCollection("barbeiros"),where("ativo","==",true))),getDocs(tenantCollection("servicos"))]); assertCurrentAccountBootstrap(current, generation); barbers.forEach((d)=>$("favorite-barber").insertAdjacentHTML("beforeend",`<option value="${d.id}">${d.data().nome}</option>`)); services.forEach((d)=>$("favorite-service").insertAdjacentHTML("beforeend",`<option value="${d.id}">${d.data().nome}</option>`)); }
+async function loadAccount(current, generation) {
+  const ref = tenantDocument("clientes", clientUid);
   const snap = await getDoc(ref);
+  assertCurrentAccountBootstrap(current, generation);
   profile = snap.exists() ? snap.data() : {};
-  if (!snap.exists()) await executarComandoOperacional("cliente.garantir-perfil", { extras: { nome: user.displayName || "", email: user.email || "", telefone: "" } });
+  if (!snap.exists()) {
+    await executarComandoOperacional("cliente.garantir-perfil", { extras: { nome: user.displayName || "", email: user.email || "", telefone: "" } });
+    assertCurrentAccountBootstrap(current, generation);
+  }
 
-  const appointmentsQuery = query(collection(db, "agendamentos"), where("cliente_id", "==", operationalUid), orderBy("data", "desc"));
-  appointments = (await getDocs(appointmentsQuery)).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const appointmentsQuery = query(tenantCollection("agendamentos"), where("cliente_id", "==", clientUid), orderBy("data", "desc"));
+  const appointmentDocs = (await getDocs(appointmentsQuery)).docs.map((d) => ({ id: d.id, ...d.data() }));
+  assertCurrentAccountBootstrap(current, generation);
+  appointments = appointmentDocs;
   $("profile-name").value = profile.nome || user.displayName || "";
   $("profile-phone").value = profile.telefone || "";
   $("profile-email").value = user.email || profile.email || "";
@@ -103,12 +134,36 @@ async function loadAccount() {
 
   $("loyalty-reward").innerHTML = benefits ? `<article class="loyalty-reward"><span class="status-pill status-concluido">Benefício disponível</span><h3>Benefício desbloqueado</h3><p>Você completou ${benefits * 10} atendimentos. Seu benefício de fidelidade está disponível.</p></article>` : "";
 }
-$("profile-form").addEventListener("submit",async(e)=>{e.preventDefault(); const nome=$("profile-name").value.trim(); const telefone=$("profile-phone").value.replace(/\D/g,""); if(telefone&&!/^55\d{10,11}$/.test(telefone)) return message("profile-msg","Informe o WhatsApp com DDI: +55 11 99999-9999.","err"); try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{nome,telefone,data_nascimento:$("profile-birth").value,avatar_data:profile.avatar_data||""}}); await updateProfile(user,{displayName:nome}); profile.nome=nome; message("profile-msg","Perfil atualizado."); setAvatar(avatarAtual(),nome);}catch(err){message("profile-msg","Não foi possível salvar o perfil.","err");}});
-$("avatar-input").addEventListener("change",async(e)=>{const input=e.currentTarget;const file=input.files[0];if(!file)return;if(file.size>AVATAR_MAX_BYTES){message("profile-msg","A imagem deve ter no máximo 5 MB.","err");input.value="";return;}if(!arquivoDeImagemAceito(file)){message("profile-msg","Use JPG, PNG ou WebP, até 5 MB.","err");input.value="";return;}input.disabled=true;try{message("profile-msg","Otimizando foto...");const fotoOtimizada=await otimizarAvatar(file);if(!fotoOtimizada)throw new Error("COMPRESSAO_FALHOU");message("profile-msg","Enviando foto...");const avatarData=await blobParaDataUrl(fotoOtimizada);await executarComandoOperacional("cliente.atualizar-perfil",{data:{avatar_data:avatarData}});profile.avatar_data=avatarData;setAvatar(avatarData,$("profile-name").value);message("profile-msg","Foto atualizada.");}catch(err){console.error("Falha ao atualizar foto de perfil.",err);message("profile-msg","Não foi possível atualizar a foto. Sua foto atual foi mantida.","err");}finally{input.disabled=false;input.value="";}});
-$("remove-avatar").addEventListener("click",async()=>{try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{avatar_data:""}});profile.avatar_data="";$("avatar-input").value="";setAvatar("",$("profile-name").value);message("profile-msg","Foto removida.");}catch(err){message("profile-msg","Não foi possível remover a foto.","err");}});
-$("preferences-form").addEventListener("submit",async(e)=>{e.preventDefault();try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{barbeiro_favorito_id:$("favorite-barber").value,servico_favorito_id:$("favorite-service").value,periodo_preferido:$("preferred-period").value,observacoes:$("preference-notes").value.trim()}});message("preferences-msg","Preferências salvas.");}catch{message("preferences-msg","Não foi possível salvar as preferências.","err");}});
+$("profile-form").addEventListener("submit",async(e)=>{e.preventDefault();if(!ensureTenantAccountReady("profile-msg"))return; const nome=$("profile-name").value.trim(); const telefone=$("profile-phone").value.replace(/\D/g,""); if(telefone&&!/^55\d{10,11}$/.test(telefone)) return message("profile-msg","Informe o WhatsApp com DDI: +55 11 99999-9999.","err"); try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{nome,telefone,data_nascimento:$("profile-birth").value,avatar_data:profile.avatar_data||""}}); await updateProfile(user,{displayName:nome}); profile.nome=nome; message("profile-msg","Perfil atualizado."); setAvatar(avatarAtual(),nome);}catch(err){message("profile-msg","Não foi possível salvar o perfil.","err");}});
+$("avatar-input").addEventListener("change",async(e)=>{const input=e.currentTarget;if(!ensureTenantAccountReady("profile-msg")){input.value="";return;}const file=input.files[0];if(!file)return;if(file.size>AVATAR_MAX_BYTES){message("profile-msg","A imagem deve ter no máximo 5 MB.","err");input.value="";return;}if(!arquivoDeImagemAceito(file)){message("profile-msg","Use JPG, PNG ou WebP, até 5 MB.","err");input.value="";return;}input.disabled=true;try{message("profile-msg","Otimizando foto...");const fotoOtimizada=await otimizarAvatar(file);if(!fotoOtimizada)throw new Error("COMPRESSAO_FALHOU");message("profile-msg","Enviando foto...");const avatarData=await blobParaDataUrl(fotoOtimizada);await executarComandoOperacional("cliente.atualizar-perfil",{data:{avatar_data:avatarData}});profile.avatar_data=avatarData;setAvatar(avatarData,$("profile-name").value);message("profile-msg","Foto atualizada.");}catch(err){console.error("Falha ao atualizar foto de perfil.",err);message("profile-msg","Não foi possível atualizar a foto. Sua foto atual foi mantida.","err");}finally{input.disabled=false;input.value="";}});
+$("remove-avatar").addEventListener("click",async()=>{if(!ensureTenantAccountReady("profile-msg"))return;try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{avatar_data:""}});profile.avatar_data="";$("avatar-input").value="";setAvatar("",$("profile-name").value);message("profile-msg","Foto removida.");}catch(err){message("profile-msg","Não foi possível remover a foto.","err");}});
+$("preferences-form").addEventListener("submit",async(e)=>{e.preventDefault();if(!ensureTenantAccountReady("preferences-msg"))return;try{await executarComandoOperacional("cliente.atualizar-perfil",{data:{barbeiro_favorito_id:$("favorite-barber").value,servico_favorito_id:$("favorite-service").value,periodo_preferido:$("preferred-period").value,observacoes:$("preference-notes").value.trim()}});message("preferences-msg","Preferências salvas.");}catch{message("preferences-msg","Não foi possível salvar as preferências.","err");}});
 $("password-form").addEventListener("submit",async(e)=>{e.preventDefault();if($("new-password").value!==$("confirm-password").value)return message("password-msg","As novas senhas não coincidem.","err");try{await reauthenticateWithCredential(user,EmailAuthProvider.credential(user.email,$("current-password").value));await updatePassword(user,$("new-password").value);e.target.reset();message("password-msg","Senha alterada com sucesso.");}catch(err){message("password-msg",err.code==="auth/wrong-password"||err.code==="auth/invalid-credential"?"Senha atual incorreta.":"Não foi possível alterar a senha.","err");}});
 $("delete-request").addEventListener("click",()=>alert("Pedido de exclusão registrado. Entre em contato com a Barbearia Antunes para concluir a remoção segura dos dados vinculados a agendamentos."));
 document.querySelectorAll("[data-account-view]").forEach((btn)=>btn.addEventListener("click",()=>{document.querySelectorAll(".account-view").forEach((v)=>v.classList.remove("active"));document.querySelectorAll("[data-account-view]").forEach((b)=>b.classList.remove("active"));$("account-"+btn.dataset.accountView).classList.add("active");btn.classList.add("active");}));
 document.querySelectorAll("[data-logout]").forEach((b)=>b.addEventListener("click",async()=>{await signOut(auth);location.replace("index.html");}));
-onAuthStateChanged(auth,async(current)=>{if(!current)return location.replace("index.html");user=current;try{operationalUid=await obterUidOperacional(current);await loadOptions();await loadAccount(); const hash=location.hash.slice(1);if(hash){const target={"visao-geral":"overview","meu-perfil":"profile",agendamentos:"appointments",preferencias:"preferences",seguranca:"security",fidelidade:"loyalty"}[hash];document.querySelector(`[data-account-view="${target}"]`)?.click();}}catch(err){console.error(err);}});
+onAuthStateChanged(auth,async(current)=>{
+  const generation=++accountBootstrapGeneration;
+  if(!current)return location.replace("index.html");
+  user=current;
+  renderGlobalAccountData(current);
+  try{
+    const resolvedTenantContext=await initializeTenantContext();
+    if(!currentAccountBootstrap(current,generation))return;
+    if(!tenantContextIsReady(resolvedTenantContext)){
+      message("profile-msg","Este estabelecimento não está disponível.","err");
+      return;
+    }
+    tenantContext=resolvedTenantContext;
+    clientUid=await obterUidOperacionalComBootstrapCliente(current);
+    assertCurrentAccountBootstrap(current,generation);
+    await loadOptions(current,generation);
+    await loadAccount(current,generation);
+    const hash=location.hash.slice(1);
+    if(hash){const target={"visao-geral":"overview","meu-perfil":"profile",agendamentos:"appointments",preferencias:"preferences",seguranca:"security",fidelidade:"loyalty"}[hash];document.querySelector(`[data-account-view="${target}"]`)?.click();}
+  }catch(err){
+    if(err?.message==="STALE_ACCOUNT_BOOTSTRAP")return;
+    console.error("Falha ao carregar dados do estabelecimento na conta.",err);
+    message("profile-msg","Não foi possível carregar os dados deste estabelecimento.","err");
+  }
+});

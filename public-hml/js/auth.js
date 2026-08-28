@@ -1,5 +1,6 @@
 import { auth } from "./firebase-config.js";
 import { executarComandoOperacional } from "./operational-commands.js";
+import { resolveTenantPageAccess } from "./tenant-membership-gate.js";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -57,6 +58,13 @@ function normalizarWhatsApp(numero) {
 // Não sobrescreve dados já existentes (merge: true).
 async function garantirDocCliente(user, dadosExtras = {}) {
   await executarComandoOperacional("cliente.garantir-perfil", { extras: dadosExtras });
+}
+
+// O login só libera a rota de cliente depois da confirmação de membership
+// tenant-scoped. As páginas protegidas mantêm o mesmo gate como segunda
+// camada de defesa contra navegação direta e corridas de bootstrap.
+export async function resolveLoginTenantAccess(user) {
+  return resolveTenantPageAccess(user, "CLIENTE");
 }
 
 // ----------------------------------------------------------------------------

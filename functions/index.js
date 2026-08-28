@@ -14,6 +14,7 @@ import { defineString } from "firebase-functions/params";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 export { executeOperationalCommand } from "./dual-write.js";
 export { resolveTenantHostname } from "./hostname-resolution-endpoint.mjs";
+export { inspectTenantMembership } from "./tenant-membership-inspection.mjs";
 
 const TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
 const ALLOWED_PROJECTS = new Set(["barber-a01e7", "teste-483f6"]);

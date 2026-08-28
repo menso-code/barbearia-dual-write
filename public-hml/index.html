@@ -102,12 +102,39 @@
 </div>
 
 <script type="module">
-  import { auth, onAuthStateChanged } from "./js/auth.js";
-  // Se já estiver logado, vai direto para a área do cliente.
-  onAuthStateChanged(auth, (user) => {
-    if (user && !sessionStorage.getItem("cadastroEmAndamento")) {
-      window.location.href = "app.html";
+  import { auth, onAuthStateChanged, resolveLoginTenantAccess } from "./js/auth.js";
+
+  let loginAccessGeneration = 0;
+  const loginMessage = document.getElementById("auth-msg");
+  const loginSubmit = document.querySelector("#form-login button[type=submit]");
+
+  function showLoginAccessMessage(message) {
+    if (!loginMessage) return;
+    loginMessage.textContent = message;
+    loginMessage.className = "msg show err";
+  }
+
+  // Auth válida não é suficiente: a rota protegida só é alcançada após a
+  // confirmação de membership ativa e role CLIENTE no tenant do hostname.
+  onAuthStateChanged(auth, async (user) => {
+    const generation = ++loginAccessGeneration;
+    if (!user || sessionStorage.getItem("cadastroEmAndamento")) return;
+
+    let access;
+    try {
+      access = await resolveLoginTenantAccess(user);
+    } catch {
+      access = { allowed: false, message: "Não foi possível validar seu acesso neste estabelecimento." };
     }
+
+    if (generation !== loginAccessGeneration || auth.currentUser?.uid !== user.uid) return;
+    if (!access.allowed) {
+      loginSubmit?.removeAttribute("disabled");
+      showLoginAccessMessage(access.message || "Não foi possível validar seu acesso neste estabelecimento.");
+      return;
+    }
+
+    window.location.replace("app.html");
   });
 </script>
 <script defer src="js/pwa-install.js"></script>

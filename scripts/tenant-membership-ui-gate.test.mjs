@@ -140,7 +140,9 @@ test("saída de acesso negado é pública e determinística", async () => {
   assert.doesNotMatch(denied, /onAuthStateChanged|app\.html|admin\.html|barber\.html|account\.html/);
   assert.doesNotMatch(deniedJs, /location\.href|location\.assign|history\.back/);
   assert.match(deniedJs, /signOut\(auth\)/);
-  assert.match(index, /window\.location\.href = "app\.html"/);
+  assert.match(index, /resolveLoginTenantAccess/);
+  assert.match(index, /if \(!access\.allowed\)/);
+  assert.match(index, /window\.location\.replace\("app\.html"\)/);
 });
 
 test("membership válida libera CLIENTE, BARBEIRO e ADMIN", async () => {
@@ -242,4 +244,62 @@ test("controle de acesso usa timeout central e não usa allSettled sem limite", 
   assert.match(core, /MEMBERSHIP/);
   assert.match(accessControl, /resolveTenantMembershipAccess/);
   assert.doesNotMatch(accessControl, /Promise\.allSettled/);
+});
+
+test("membership é inspecionada pelo backend, sem UID controlado pelo navegador", async () => {
+  const [accessControl, operationalContext] = await Promise.all([
+    read("public-hml/js/access-control.js"),
+    read("functions/operational-context.mjs"),
+  ]);
+  assert.match(accessControl, /httpsCallable\(functions, "inspectTenantMembership"\)/);
+  assert.doesNotMatch(accessControl, /obterUidOperacional|getDoc|tenantId\s*:/);
+  assert.match(operationalContext, /membros\/\$\{authUid\}/);
+});
+
+test("login só redireciona após membership CLIENTE permitida", async () => {
+  const [index, auth] = await Promise.all([
+    read("public-hml/index.html"),
+    read("public-hml/js/auth.js"),
+  ]);
+  assert.match(auth, /export async function resolveLoginTenantAccess\(user\)/);
+  assert.match(auth, /resolveTenantPageAccess\(user, "CLIENTE"\)/);
+  assert.match(index, /resolveLoginTenantAccess/);
+  assert.match(index, /if \(!access\.allowed\)/);
+  assert.match(index, /showLoginAccessMessage\(access\.message/);
+  assert.match(index, /window\.location\.replace\("app\.html"\)/);
+  assert.ok(index.indexOf("if (!access.allowed)") < index.indexOf('window.location.replace("app.html")'));
+});
+
+test("login preserva fail-closed e não substitui o gate interno", async () => {
+  const [index, app, admin, barber, account] = await Promise.all([
+    read("public-hml/index.html"),
+    read("public-hml/js/app.js"),
+    read("public-hml/js/admin.js"),
+    read("public-hml/js/barber.js"),
+    read("public-hml/js/account.js"),
+  ]);
+  assert.match(index, /Não foi possível validar seu acesso neste estabelecimento\./);
+  assert.doesNotMatch(index, /tenantId\s*[:=]|slug\s*[:=]|hostname\s*[:=]/);
+  for (const source of [app, admin, barber, account]) {
+    assert.match(source, /resolveTenantPageAccess\(/);
+    assert.match(source, /renderTenantAccessGate\(/);
+  }
+});
+
+test("resposta da callable é estrita e não aceita campos de tenant injetados", async () => {
+  const result = await resolveTenantMembershipAccess({
+    user: validUser,
+    requiredRole: "CLIENTE",
+    resolveTenantContext: () => Promise.resolve(validTenantContext),
+    inspectMembership: () => Promise.resolve({ schema: 1, state: "ACTIVE", tenantId: "tenant-forged" }),
+    timeoutMs: 20,
+  });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").allowed, false);
+});
+
+test("access-control consulta a callable apenas com hostname e superfície", async () => {
+  const accessControl = await read("public-hml/js/access-control.js");
+  assert.match(accessControl, /inspectTenantMembership\(\{ context: \{ hostname \}, surface \}\)/);
+  assert.doesNotMatch(accessControl, /tenantId\s*:|slug\s*:|uid\s*:|operationalUid\s*:|roles\s*:/);
 });

@@ -6,13 +6,18 @@
  * Dry-run é o padrão. O modo apply aceita somente teste-483f6, exige um
  * tenant-slug explícito e nunca registra senhas, tokens ou e-mails.
  */
-import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import {
+  TENANT_SLUG_STATUSES,
+  normalizeTenantSlug,
+  resolveTenantSlug,
+} from "../functions/tenant-slug.mjs";
 
 export const HML_PROJECT = "teste-483f6";
 export const PRODUCTION_PROJECT = "barber-a01e7";
+export const HML_TENANT_ENVIRONMENT = "HOMOLOGACAO";
 export const DEFAULT_MANIFEST_DIR = "reports/hml-fixtures";
 export const REQUIRED_ROLES = Object.freeze({ admin: "ADMIN", barber: "BARBEIRO", client: "CLIENTE" });
 const requireFromFunctions = createRequire(new URL("../functions/package.json", import.meta.url));
@@ -45,13 +50,6 @@ export function validateOptions(options) {
   return true;
 }
 
-export function tenantIdForSlug(slug) {
-  const normalized = String(slug || "").trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]{1,30}[a-z0-9]$/.test(normalized)) throw new Error("TENANT_SLUG_REQUIRED_AND_INVALID");
-  if (normalized === "antunes") throw new Error("IMPLICIT_ANTUNES_TENANT_FORBIDDEN");
-  return `qa_${createHash("sha256").update(`hml:${normalized}`).digest("hex").slice(0, 24)}`;
-}
-
 export function safeEmail(value, role) {
   const email = String(value || "").trim().toLowerCase();
   if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -60,14 +58,54 @@ export function safeEmail(value, role) {
   return email;
 }
 
-export function fixturePlan(options) {
+export async function resolveOfficialTenant({ db, tenantSlug }) {
+  if (!db?.doc) throw new Error("TENANT_RESOLUTION_ADAPTER_REQUIRED");
+  const normalizedSlug = normalizeTenantSlug(tenantSlug);
+  let resolution;
+  try {
+    resolution = await resolveTenantSlug({ db, slug: normalizedSlug });
+  } catch (error) {
+    throw new Error(`TENANT_RESOLUTION_FAILED:${error.code || "UNKNOWN"}`);
+  }
+  if (!resolution || resolution.status !== TENANT_SLUG_STATUSES.ACTIVE || !resolution.tenantId) {
+    throw new Error("TENANT_RESOLUTION_NOT_ACTIVE");
+  }
+
+  const tenantSnapshot = await db.doc(`barbearias/${resolution.tenantId}`).get();
+  const tenant = tenantSnapshot.exists ? tenantSnapshot.data() : null;
+  if (
+    !tenant
+    || tenant.status !== TENANT_SLUG_STATUSES.ACTIVE
+    || tenant.slug !== normalizedSlug
+    || tenant.ambiente !== HML_TENANT_ENVIRONMENT
+    || (tenant.tenant_id && tenant.tenant_id !== resolution.tenantId)
+  ) {
+    throw new Error("TENANT_DOCUMENT_MISMATCH");
+  }
+  return Object.freeze({
+    tenantId: resolution.tenantId,
+    slug: normalizedSlug,
+    source: `tenant_slugs/${normalizedSlug}`,
+  });
+}
+
+export function fixturePlan(options, tenantResolution) {
   validateOptions({ ...options, apply: false });
-  const tenantId = tenantIdForSlug(options.tenantSlug);
-  const host = `${options.tenantSlug}.hml.goestudio.invalid`;
+  const slug = normalizeTenantSlug(options.tenantSlug);
+  if (
+    !tenantResolution
+    || tenantResolution.source !== `tenant_slugs/${slug}`
+    || !tenantResolution.tenantId
+    || tenantResolution.slug !== slug
+  ) {
+    throw new Error("TENANT_RESOLUTION_REQUIRED");
+  }
+  const { tenantId } = tenantResolution;
+  const host = `${slug}.hml.goestudio.invalid`;
   return {
     project: HML_PROJECT,
     tenantId,
-    slug: String(options.tenantSlug).trim().toLowerCase(),
+    slug,
     tenantPath: `barbearias/${tenantId}`,
     hostname: host,
     resources: [
@@ -75,7 +113,7 @@ export function fixturePlan(options) {
       { role: "BARBEIRO", auth: "barber", memberPath: `barbearias/${tenantId}/membros/{barberUid}`, profilePath: `barbearias/${tenantId}/barbeiros/{barberId}` },
       { role: "CLIENTE", auth: "client", memberPath: `barbearias/${tenantId}/membros/{clientUid}`, profilePath: `barbearias/${tenantId}/clientes/{clientUid}` },
     ],
-    writes: 1 + 3 + 2,
+    writes: 3 + 2,
   };
 }
 
@@ -117,7 +155,6 @@ async function getOrCreateUser(auth, email, password, displayName) {
 async function ensureResources({ db, plan, users, apply }) {
   const ids = { barberId: `qa-barber-${users.barber.uid.slice(0, 12)}` };
   const refs = {
-    tenant: db.doc(plan.tenantPath),
     adminMember: db.doc(`barbearias/${plan.tenantId}/membros/${users.admin.uid}`),
     barberMember: db.doc(`barbearias/${plan.tenantId}/membros/${users.barber.uid}`),
     clientMember: db.doc(`barbearias/${plan.tenantId}/membros/${users.client.uid}`),
@@ -127,13 +164,9 @@ async function ensureResources({ db, plan, users, apply }) {
   if (!apply) return { ids, paths: Object.values(refs).map((ref) => ref.path) };
   await db.runTransaction(async (tx) => {
     const snapshots = await Promise.all(Object.values(refs).map((ref) => tx.get(ref)));
-    const tenant = snapshots[0].exists ? snapshots[0].data() : null;
-    if (tenant && (tenant.status !== "ACTIVE" || tenant.slug !== plan.slug || tenant.ambiente !== "HML")) throw new Error("TENANT_EXISTING_DATA_MISMATCH");
-    if (tenant && tenant.fixture_purpose !== "HML_QA") throw new Error("EXISTING_NON_QA_TENANT_FORBIDDEN");
-    for (const snapshot of snapshots.slice(1)) {
+    for (const snapshot of snapshots) {
       if (snapshot.exists && snapshot.data()?.fixture_purpose !== "HML_QA") throw new Error("EXISTING_NON_QA_RESOURCE_FORBIDDEN");
     }
-    tx.set(refs.tenant, { tenant_id: plan.tenantId, slug: plan.slug, status: "ACTIVE", schema: 2, ambiente: "HML", fixture: true, fixture_purpose: "HML_QA" }, { merge: true });
     tx.set(refs.adminMember, fixtureFields("ADMIN", users.admin.uid, plan, ids), { merge: true });
     tx.set(refs.barberMember, fixtureFields("BARBEIRO", users.barber.uid, plan, ids), { merge: true });
     tx.set(refs.clientMember, fixtureFields("CLIENTE", users.client.uid, plan, ids), { merge: true });
@@ -145,7 +178,11 @@ async function ensureResources({ db, plan, users, apply }) {
 
 export async function provision(options, dependencies = {}) {
   validateOptions(options);
-  const plan = fixturePlan(options);
+  const { db, auth } = dependencies.sdk ? await dependencies.sdk() : await sdk();
+  const tenantResolution = dependencies.resolveTenant
+    ? await dependencies.resolveTenant({ db, tenantSlug: options.tenantSlug })
+    : await resolveOfficialTenant({ db, tenantSlug: options.tenantSlug });
+  const plan = fixturePlan(options, tenantResolution);
   const emails = {
     admin: safeEmail(options.adminEmail, "admin"),
     barber: safeEmail(options.barberEmail, "barber"),
@@ -153,7 +190,6 @@ export async function provision(options, dependencies = {}) {
   };
   if (new Set(Object.values(emails)).size !== 3) throw new Error("FIXTURE_EMAILS_MUST_BE_DISTINCT");
   if (options.dryRun) return { mode: "dry-run", plan, emails: Object.fromEntries(Object.keys(emails).map((role) => [role, "provided"])), writes: 0 };
-  const { auth, db } = dependencies.sdk ? await dependencies.sdk() : await sdk();
   const createdAuthUids = [];
   const users = {};
   try {
@@ -181,13 +217,16 @@ export async function reset(options, dependencies = {}) {
   const manifestPath = resolve(options.manifest);
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (manifest.kind !== "HML_FIXTURE_MANIFEST" || manifest.project !== HML_PROJECT || !manifest.tenantId || !Array.isArray(manifest.resources) || !manifest.users) throw new Error("INVALID_HML_FIXTURE_MANIFEST");
-  if (manifest.tenantId !== tenantIdForSlug(options.tenantSlug) || manifest.slug !== String(options.tenantSlug).trim().toLowerCase()) throw new Error("MANIFEST_TENANT_MISMATCH");
+  const { db, auth } = dependencies.sdk ? await dependencies.sdk() : await sdk();
+  const tenantResolution = dependencies.resolveTenant
+    ? await dependencies.resolveTenant({ db, tenantSlug: options.tenantSlug })
+    : await resolveOfficialTenant({ db, tenantSlug: options.tenantSlug });
+  if (manifest.tenantId !== tenantResolution.tenantId || manifest.slug !== tenantResolution.slug) throw new Error("MANIFEST_TENANT_MISMATCH");
   if (Object.values(manifest.users).some((user) => !user || !/^[A-Za-z0-9_-]{10,128}$/.test(String(user.uid || "")) || typeof user.created !== "boolean")) throw new Error("INVALID_MANIFEST_USER");
   const tenantPrefix = `barbearias/${manifest.tenantId}/`;
   const allowedResource = new RegExp(`^barbearias/${manifest.tenantId}/(?:membros|barbeiros|clientes)/[^/]+$`);
   if (new Set(manifest.resources).size !== manifest.resources.length || manifest.resources.some((resource) => typeof resource !== "string" || resource.includes("..") || (resource !== `barbearias/${manifest.tenantId}` && !allowedResource.test(resource)))) throw new Error("MANIFEST_RESOURCE_OUT_OF_TENANT_SCOPE");
   if (options.dryRun) return { mode: "dry-run", project: HML_PROJECT, tenantId: manifest.tenantId, resources: manifest.resources.length, authDeletes: Object.values(manifest.users).filter((user) => user.created).length };
-  const { auth, db } = dependencies.sdk ? await dependencies.sdk() : await sdk();
   await db.runTransaction(async (tx) => {
     for (const path of [...manifest.resources].sort((a, b) => b.length - a.length)) tx.delete(db.doc(path));
   });

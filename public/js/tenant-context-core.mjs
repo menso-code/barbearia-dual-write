@@ -11,7 +11,6 @@ export const TENANT_CONTEXT_STATES = Object.freeze({
 export const TENANT_CONTEXT_SOURCES = Object.freeze({
   HOSTNAME: "HOSTNAME",
   DEV_FIXTURE: "DEV_FIXTURE",
-  LEGACY_COMPAT: "LEGACY_COMPAT",
 });
 
 export class TenantContextError extends Error {
@@ -81,13 +80,10 @@ export function tenantContextIsReady(context) {
     && Boolean(String(context.tenantId || "").trim());
 }
 
-export function createTenantContextManager({ resolveHostname, devFixture, legacyCompat } = {}) {
+export function createTenantContextManager({ resolveHostname, devFixture } = {}) {
   let context = frozenContext(TENANT_CONTEXT_STATES.IDLE);
   let initializationPromise = null;
   let initializationKey = "";
-  const legacyHosts = new Set(
-    (legacyCompat?.hostnames || []).map(normalizeExactHostname).filter(Boolean),
-  );
 
   async function resolveContext({ hostname: rawHostname = "", mode = "production" } = {}) {
     const hostname = normalizeExactHostname(rawHostname);
@@ -98,10 +94,6 @@ export function createTenantContextManager({ resolveHostname, devFixture, legacy
         return frozenContext(TENANT_CONTEXT_STATES.NOT_FOUND);
       }
       return normalizeReadyCandidate(devFixture, TENANT_CONTEXT_SOURCES.DEV_FIXTURE);
-    }
-
-    if (legacyCompat && legacyHosts.has(hostname)) {
-      return normalizeReadyCandidate(legacyCompat, TENANT_CONTEXT_SOURCES.LEGACY_COMPAT);
     }
 
     if (typeof resolveHostname !== "function") {

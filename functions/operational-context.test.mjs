@@ -43,6 +43,7 @@ class MemoryDb {
 function tenantEntries({ slug, tenantId, uid, roles = ["ADMIN", "CLIENTE"], status = "ACTIVE" }) {
   return {
     [`tenant_slugs/${slug}`]: { tenantId, status: "ACTIVE" },
+    [`tenant_hostnames/${slug}.goestudio.com.br`]: { tenantId },
     [`barbearias/${tenantId}`]: { slug, status },
     [`barbearias/${tenantId}/membros/${uid}`]: { ativo: true, papeis: roles },
   };
@@ -324,6 +325,7 @@ test("TENANT_A_ASSINATURA_RECUSAR_PASS e TENANT_B_ASSINATURA_RECUSAR_PASS", asyn
 
 test("ANTUNES_DUAL_WRITE_PRESERVED para os comandos dos Slices 2, 3, 4, 5, 6, 7 e 8", async () => {
   const db = new MemoryDb({
+    [`tenant_hostnames/barber-a01e7.web.app`]: { tenantId: ANTUNES_TENANT_ID },
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
   });
@@ -446,6 +448,7 @@ test("SAME_TENANT_REQUEST_ID_COLLISION_PROTECTED", () => {
 test("NON_MEMBER_REJECTED", async () => {
   const db = new MemoryDb({
     "tenant_slugs/studio-a": { tenantId: "tenant-a", status: "ACTIVE" },
+    "tenant_hostnames/studio-a.goestudio.com.br": { tenantId: "tenant-a" },
     "barbearias/tenant-a": { slug: "studio-a", status: "ACTIVE" },
   });
   await rejectsCode(identityContext(db, "studio-a", "admin-a"), "MEMBERSHIP_REQUIRED");
@@ -481,6 +484,7 @@ test("ALL_32_COMMANDS_MIGRATED_TO_TENANT_CONTEXT", () => {
 test("CLIENT_BOOTSTRAP resolves an active tenant without prior membership", async () => {
   const db = new MemoryDb({
     "tenant_slugs/studio-a": { tenantId: "tenant-a", status: "ACTIVE" },
+    "tenant_hostnames/studio-a.goestudio.com.br": { tenantId: "tenant-a" },
     "barbearias/tenant-a": { slug: "studio-a", status: "ACTIVE" },
   });
   const context = await resolveOperationalContext({
@@ -503,6 +507,7 @@ test("CLIENT_BOOTSTRAP resolves an active tenant without prior membership", asyn
 test("CLIENT_BOOTSTRAP fails closed for inactive and unknown tenants", async () => {
   const inactive = new MemoryDb({
     "tenant_slugs/studio-off": { tenantId: "tenant-off", status: "ACTIVE" },
+    "tenant_hostnames/studio-off.goestudio.com.br": { tenantId: "tenant-off" },
     "barbearias/tenant-off": { slug: "studio-off", status: "INACTIVE" },
   });
   const bootstrap = (hostname) => resolveOperationalContext({
@@ -550,8 +555,9 @@ test("omitir localizador não seleciona Antunes para membro de outro tenant", as
   }), "TENANT_NOT_RESOLVED");
 });
 
-test("host Firebase legado é allowlist exata e identidade continua V2-only", async () => {
+test("hostname indexado resolve identidade e preserva modo operacional", async () => {
   const db = new MemoryDb({
+    "tenant_hostnames/barber-a01e7.web.app": { tenantId: ANTUNES_TENANT_ID },
     [`barbearias/${ANTUNES_TENANT_ID}`]: { slug: "antunes", status: "ACTIVE" },
     [`barbearias/${ANTUNES_TENANT_ID}/membros/admin-antunes`]: { ativo: true, papeis: ["ADMIN"] },
   });

@@ -68,6 +68,6 @@ test("compatibilidade fixa permanece isolada no tenant context", async () => {
   ]);
   assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
-  assert.match(context, /LEGACY_FIREBASE_COMPAT/);
+  assert.doesNotMatch(context, /LEGACY_FIREBASE_COMPAT|LEGACY_COMPAT_TENANT_/);
   assert.doesNotMatch(`${access}\n${controlCenter}\n${customers}`, /BARBEARIA_ATUAL_ID|BARBEARIA_PADRAO_ID/);
 });

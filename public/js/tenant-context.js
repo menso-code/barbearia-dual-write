@@ -5,7 +5,6 @@ import {
   tenantContextIsReady,
   tenantScopedCacheKey,
 } from "./tenant-context-core.mjs";
-import { BARBEARIA_PADRAO_ID, BARBEARIA_PADRAO_SLUG } from "./tenant.js";
 import {
   redirectToCanonicalTenantHostname,
   resolveTenantHostname,
@@ -18,32 +17,10 @@ export {
   tenantScopedCacheKey,
 };
 
-// Compatibilidade temporária concentrada em um único módulo. Estes valores só
-// são aceitos para desenvolvimento local e para os hosts Firebase legados
-// explicitamente conhecidos; host desconhecido nunca cai no tenant Antunes.
-export const LEGACY_COMPAT_TENANT_ID = BARBEARIA_PADRAO_ID;
-export const LEGACY_COMPAT_TENANT_SLUG = BARBEARIA_PADRAO_SLUG;
-
-const LOCAL_DEV_TENANT_FIXTURE = Object.freeze({
-  tenantId: LEGACY_COMPAT_TENANT_ID,
-  slug: LEGACY_COMPAT_TENANT_SLUG,
-});
-
-const LEGACY_FIREBASE_COMPAT = Object.freeze({
-  tenantId: LEGACY_COMPAT_TENANT_ID,
-  slug: LEGACY_COMPAT_TENANT_SLUG,
-  hostnames: Object.freeze([
-    "barber-a01e7.web.app",
-    "barber-a01e7.firebaseapp.com",
-  ]),
-});
-
 let trustedHostnameResolver = null;
 let redirectStarted = false;
 let initializationPromise = null;
 const manager = createTenantContextManager({
-  devFixture: LOCAL_DEV_TENANT_FIXTURE,
-  legacyCompat: LEGACY_FIREBASE_COMPAT,
   resolveHostname: ({ hostname }) => trustedHostnameResolver
     ? trustedHostnameResolver({ hostname })
     : Promise.resolve({ kind: "NOT_FOUND" }),

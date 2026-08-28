@@ -9,11 +9,6 @@ import {
 } from "../public/js/tenant-context-core.mjs";
 
 const fixture = Object.freeze({ tenantId: "tenant-a", slug: "studio-a" });
-const legacyCompat = Object.freeze({
-  ...fixture,
-  hostnames: Object.freeze(["legacy.example.test"]),
-});
-
 test("TenantContext inicializa uma vez e compartilha a mesma promise", async () => {
   let release;
   const resolver = new Promise((resolve) => { release = resolve; });
@@ -95,23 +90,11 @@ test("fixture local é explícita e não fica disponível em modo produção", a
   );
 });
 
-test("LEGACY_COMPAT aceita somente hostname explicitamente permitido", async () => {
-  const allowed = createTenantContextManager({ legacyCompat });
-  assert.deepEqual(await allowed.initialize({ hostname: "legacy.example.test" }), {
-    status: TENANT_CONTEXT_STATES.READY,
-    ...fixture,
-    source: TENANT_CONTEXT_SOURCES.LEGACY_COMPAT,
-  });
-  const denied = createTenantContextManager({ legacyCompat });
-  assert.equal(
-    (await denied.initialize({ hostname: "unknown.example.test" })).status,
-    TENANT_CONTEXT_STATES.NOT_FOUND,
-  );
-});
-
 test("segunda tentativa de tenant na mesma sessão é rejeitada", async () => {
-  const manager = createTenantContextManager({ legacyCompat });
-  await manager.initialize({ hostname: "legacy.example.test" });
+  const manager = createTenantContextManager({
+    resolveHostname: async () => ({ kind: "ACTIVE", ...fixture }),
+  });
+  await manager.initialize({ hostname: "a.example" });
   await assert.rejects(
     manager.initialize({ hostname: "outro.example.test" }),
     { code: "SECOND_TENANT_INITIALIZATION" },
@@ -140,7 +123,7 @@ test("integração frontend mantém autorização no servidor e compatibilidade 
     read("functions/dual-write.js"),
   ]);
 
-  assert.match(browser, /barber-a01e7\.web\.app/);
+  assert.doesNotMatch(browser, /LEGACY_FIREBASE_COMPAT|barber-a01e7\.web\.app/);
   assert.match(browser, /registerTrustedTenantHostnameResolver/);
   assert.match(browser, /registerTrustedTenantHostnameResolver\(resolveTenantHostname\)/);
   assert.match(resolver, /httpsCallable\(functions, "resolveTenantHostname"\)/);

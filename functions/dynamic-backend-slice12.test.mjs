@@ -163,6 +163,7 @@ class MemoryDb {
 function clientEntries({ slug, tenantId, uid, roles = ["CLIENTE"], status = "ACTIVE" }) {
   return {
     [`tenant_slugs/${slug}`]: { tenantId, status: "ACTIVE" },
+    [`tenant_hostnames/${slug}.goestudio.com.br`]: { tenantId },
     [`barbearias/${tenantId}`]: { slug, status },
     [`barbearias/${tenantId}/membros/${uid}`]: { ativo: true, papeis: roles },
   };
@@ -244,6 +245,7 @@ test("CLIENTE_AUTH_VALIDATED, SELF_UPDATE_ONLY_VALIDATED e INACTIVE_TENANT_DENIE
 test("NON_MEMBER_DENIED e NON_CLIENTE_DENIED", async () => {
   const noMember = new MemoryDb({
     "tenant_slugs/studio-a": { tenantId: "tenant-a", status: "ACTIVE" },
+    "tenant_hostnames/studio-a.goestudio.com.br": { tenantId: "tenant-a" },
     "barbearias/tenant-a": { slug: "studio-a", status: "ACTIVE" },
   });
   await assert.rejects(clientContext(noMember, "studio-a", "client-a"), (cause) => cause?.code === "MEMBERSHIP_REQUIRED");

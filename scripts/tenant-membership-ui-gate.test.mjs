@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { deniedAccessRoute, evaluateTenantPageAccess } from "../public-hml/js/tenant-membership-gate-core.mjs";
+import {
+  deniedAccessRoute,
+  evaluateTenantPageAccess,
+  resolveTenantMembershipAccess,
+  withAccessTimeout,
+} from "../public-hml/js/tenant-membership-gate-core.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -12,6 +17,27 @@ const access = (overrides = {}) => ({
   tenantStatus: "READY",
   membershipStatus: "ACTIVE",
   roles: ["CLIENTE"],
+  ...overrides,
+});
+
+const validUser = { uid: "qa-user" };
+const validTenantContext = {
+  status: "READY",
+  tenantId: "tenant-b",
+  hostname: "tenant-b.example.test",
+};
+const validMember = {
+  ativo: true,
+  papeis: ["ADMIN", "BARBEIRO", "CLIENTE"],
+  barbeiro_id: "barber-b",
+};
+
+const resolveAccess = (overrides = {}) => resolveTenantMembershipAccess({
+  user: validUser,
+  resolveTenantContext: () => Promise.resolve(validTenantContext),
+  resolveOperationalUid: () => Promise.resolve("operational-qa-user"),
+  readMembership: () => Promise.resolve(validMember),
+  timeoutMs: 20,
   ...overrides,
 });
 
@@ -115,4 +141,105 @@ test("saída de acesso negado é pública e determinística", async () => {
   assert.doesNotMatch(deniedJs, /location\.href|location\.assign|history\.back/);
   assert.match(deniedJs, /signOut\(auth\)/);
   assert.match(index, /window\.location\.href = "app\.html"/);
+});
+
+test("membership válida libera CLIENTE, BARBEIRO e ADMIN", async () => {
+  const result = await resolveAccess();
+  assert.equal(result.membershipStatus, "ACTIVE");
+  assert.deepEqual(result.roles, ["ADMIN", "BARBEIRO", "CLIENTE"]);
+  for (const role of ["CLIENTE", "BARBEIRO", "ADMIN"]) {
+    assert.equal(evaluateTenantPageAccess(result, role).allowed, true);
+  }
+});
+
+test("mapeamento ausente continua sendo ausência de membership, não indisponibilidade", async () => {
+  const result = await resolveAccess({
+    resolveOperationalUid: () => Promise.reject(new Error("MAPEAMENTO_HOMOLOGACAO_AUSENTE")),
+  });
+  assert.equal(result.membershipStatus, "MISSING");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").code, "MEMBERSHIP_MISSING");
+});
+
+test("membership inativa bloqueia antes da role", async () => {
+  const result = await resolveAccess({
+    readMembership: () => Promise.resolve({ ativo: false, papeis: ["ADMIN"] }),
+  });
+  assert.equal(result.membershipStatus, "INACTIVE");
+  assert.equal(evaluateTenantPageAccess(result, "ADMIN").code, "MEMBERSHIP_INACTIVE");
+});
+
+test("role insuficiente bloqueia uma membership ativa", async () => {
+  const result = await resolveAccess({
+    readMembership: () => Promise.resolve({ ativo: true, papeis: ["CLIENTE"] }),
+  });
+  assert.equal(result.membershipStatus, "ACTIVE");
+  assert.equal(evaluateTenantPageAccess(result, "ADMIN").code, "ROLE_INSUFFICIENT");
+});
+
+test("TenantContext pendente termina em MEMBERSHIP_UNAVAILABLE", async () => {
+  const result = await resolveAccess({ resolveTenantContext: () => new Promise(() => {}) });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").code, "MEMBERSHIP_UNAVAILABLE");
+});
+
+test("mapeamento pendente termina em MEMBERSHIP_UNAVAILABLE", async () => {
+  const result = await resolveAccess({ resolveOperationalUid: () => new Promise(() => {}) });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").code, "MEMBERSHIP_UNAVAILABLE");
+});
+
+test("membership pendente termina em MEMBERSHIP_UNAVAILABLE", async () => {
+  const result = await resolveAccess({ readMembership: () => new Promise(() => {}) });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").code, "MEMBERSHIP_UNAVAILABLE");
+});
+
+test("erro técnico do Firestore não é confundido com ausência de membership", async () => {
+  const result = await resolveAccess({
+    readMembership: () => Promise.reject(new Error("permission-denied")),
+  });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "CLIENTE").code, "MEMBERSHIP_UNAVAILABLE");
+});
+
+test("resolução tardia após timeout não pode liberar acesso", async () => {
+  let resolveLate;
+  const result = await resolveAccess({
+    timeoutMs: 5,
+    readMembership: () => new Promise((resolve) => { resolveLate = resolve; }),
+  });
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "ADMIN").allowed, false);
+  resolveLate(validMember);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(result.membershipStatus, "UNAVAILABLE");
+  assert.equal(evaluateTenantPageAccess(result, "ADMIN").allowed, false);
+});
+
+test("timeout limpa o timer ao concluir e nenhum resultado permanece LOADING", async () => {
+  assert.equal(await withAccessTimeout(Promise.resolve("ready"), 100, "TEST"), "ready");
+  const [valid, missing, unavailable] = await Promise.all([
+    resolveAccess(),
+    resolveAccess({ readMembership: () => Promise.resolve(null) }),
+    resolveAccess({ resolveTenantContext: () => new Promise(() => {}) }),
+  ]);
+  assert.notEqual(valid.membershipStatus, "LOADING");
+  assert.notEqual(missing.membershipStatus, "LOADING");
+  assert.notEqual(unavailable.membershipStatus, "LOADING");
+  const core = await read("public-hml/js/tenant-membership-gate-core.mjs");
+  assert.match(core, /clearTimeout\(timer\)/);
+  assert.doesNotMatch(core, /membershipStatus\s*[:=]\s*["']LOADING["']/);
+});
+
+test("controle de acesso usa timeout central e não usa allSettled sem limite", async () => {
+  const [core, accessControl] = await Promise.all([
+    read("public-hml/js/tenant-membership-gate-core.mjs"),
+    read("public-hml/js/access-control.js"),
+  ]);
+  assert.match(core, /resolveTenantMembershipAccess/);
+  assert.match(core, /TENANT_CONTEXT/);
+  assert.match(core, /HML_MAPPING/);
+  assert.match(core, /MEMBERSHIP/);
+  assert.match(accessControl, /resolveTenantMembershipAccess/);
+  assert.doesNotMatch(accessControl, /Promise\.allSettled/);
 });

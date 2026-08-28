@@ -23,16 +23,39 @@ export async function getCurrentUserAccess(user) {
 
   const tenantContext = await initializeTenantContext();
   if (!tenantContextIsReady(tenantContext)) {
-    return { ...CLOSED_ACCESS, tenantStatus: tenantContext.status };
+    return { ...CLOSED_ACCESS, tenantStatus: tenantContext.status, tenantContext, membershipStatus: "UNAVAILABLE", roles: [] };
   }
 
-  const uidOperacional = await obterUidOperacional(user);
+  let uidOperacional = "";
+  try {
+    uidOperacional = await obterUidOperacional(user);
+  } catch {
+    return {
+      ...CLOSED_ACCESS,
+      tenantStatus: tenantContext.status,
+      tenantContext,
+      membershipStatus: "MISSING",
+      roles: [],
+    };
+  }
   const memberResult = await Promise.allSettled([
     getDoc(doc(db, "barbearias", tenantContext.tenantId, "membros", uidOperacional)),
   ]);
   const memberSnapshot = memberResult[0].status === "fulfilled" ? memberResult[0].value : null;
+  if (!memberSnapshot) {
+    return {
+      ...CLOSED_ACCESS,
+      tenantStatus: tenantContext.status,
+      tenantContext,
+      membershipStatus: "UNAVAILABLE",
+      roles: [],
+    };
+  }
   const member = memberSnapshot?.exists() ? memberSnapshot.data() : null;
-  const roles = member?.ativo === true && Array.isArray(member.papeis) ? member.papeis : [];
+  const roles = member?.ativo === true && Array.isArray(member.papeis)
+    ? [...new Set(member.papeis.filter((role) => typeof role === "string"))]
+    : [];
+  const membershipStatus = !member ? "MISSING" : member.ativo === true ? "ACTIVE" : "INACTIVE";
 
   return {
     isAuthenticated: true,
@@ -41,5 +64,9 @@ export async function getCurrentUserAccess(user) {
     isBarber: roles.includes("BARBEIRO"),
     barberId: roles.includes("BARBEIRO") ? member?.barbeiro_id || null : null,
     tenantStatus: tenantContext.status,
+    tenantContext,
+    membershipStatus,
+    roles,
+    uidOperacional,
   };
 }

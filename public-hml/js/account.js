@@ -1,7 +1,8 @@
 import { auth, db } from "./firebase-config.js";
 import { obterUidOperacionalComBootstrapCliente } from "./homologation-identity.js?v=2026082015";
 import { executarComandoOperacional } from "./operational-commands.js";
-import { initializeTenantContext, tenantContextIsReady } from "./tenant-context.js";
+import { tenantContextIsReady } from "./tenant-context.js";
+import { renderTenantAccessGate, resolveTenantPageAccess } from "./tenant-membership-gate.js";
 import { onAuthStateChanged, signOut, updateProfile, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { doc, getDoc, collection, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -146,15 +147,12 @@ onAuthStateChanged(auth,async(current)=>{
   const generation=++accountBootstrapGeneration;
   if(!current)return location.replace("index.html");
   user=current;
-  renderGlobalAccountData(current);
   try{
-    const resolvedTenantContext=await initializeTenantContext();
+    const access=await resolveTenantPageAccess(current,"CLIENTE");
     if(!currentAccountBootstrap(current,generation))return;
-    if(!tenantContextIsReady(resolvedTenantContext)){
-      message("profile-msg","Este estabelecimento não está disponível.","err");
-      return;
-    }
-    tenantContext=resolvedTenantContext;
+    if(!renderTenantAccessGate({access,shell:$("#account-shell"),lockedScreen:$("#account-locked"),lockedMessage:$("#account-locked-message")}))return;
+    tenantContext=access.tenantContext;
+    renderGlobalAccountData(current);
     clientUid=await obterUidOperacionalComBootstrapCliente(current);
     assertCurrentAccountBootstrap(current,generation);
     await loadOptions(current,generation);

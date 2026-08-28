@@ -1,6 +1,6 @@
 import { auth, db } from "./firebase-config.js";
 import { obterUidOperacional } from "./homologation-identity.js";
-import { getCurrentUserAccess } from "./access-control.js";
+import { renderTenantAccessGate, resolveTenantPageAccess } from "./tenant-membership-gate.js";
 import {
   initializeTenantContext,
   tenantContextIsReady,
@@ -43,6 +43,7 @@ const V2_COLLECTIONS = Object.freeze({
 });
 let adminTenantContext = null;
 let adminTenantAgenda = null;
+let adminAuthGeneration = 0;
 const operationalModalState = {
   resolve: null,
   previousFocus: null,
@@ -167,6 +168,7 @@ function publicarEstadoAcessoAdmin(status) {
 }
 
 onAuthStateChanged(auth, async (user) => {
+  const generation = ++adminAuthGeneration;
   if (!user) {
     publicarEstadoAcessoAdmin("DENIED");
     window.location.href = "index.html";
@@ -179,13 +181,18 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById("locked-screen").style.display = "flex";
     return;
   }
-  const access = await getCurrentUserAccess(user);
-  if (!access.isAdmin) {
+  const access = await resolveTenantPageAccess(user, "ADMIN");
+  if (generation !== adminAuthGeneration || auth.currentUser?.uid !== user.uid) return;
+  if (!renderTenantAccessGate({
+    access,
+    shell: document.getElementById("admin-shell"),
+    lockedScreen: document.getElementById("locked-screen"),
+    lockedMessage: document.getElementById("locked-screen-message"),
+  })) {
     publicarEstadoAcessoAdmin("DENIED");
-    document.getElementById("locked-screen").style.display = "flex";
     return;
   }
-  adminTenantContext = tenantContext;
+  adminTenantContext = access.tenantContext;
   adminTenantAgenda = createTenantScopedAgenda(adminTenantContext);
   publicarEstadoAcessoAdmin("READY");
   document.getElementById("admin-shell").style.display = "block";

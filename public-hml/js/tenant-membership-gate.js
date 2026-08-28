@@ -1,5 +1,5 @@
 import { getCurrentUserAccess } from "./access-control.js";
-import { evaluateTenantPageAccess } from "./tenant-membership-gate-core.mjs";
+import { deniedAccessRoute, evaluateTenantPageAccess } from "./tenant-membership-gate-core.mjs";
 
 export async function resolveTenantPageAccess(user, requiredRole) {
   const access = await getCurrentUserAccess(user);
@@ -22,6 +22,8 @@ export function renderTenantAccessGate({ access, shell, lockedScreen, lockedMess
   if (!access?.allowed) {
     hide(shell);
     if (lockedMessage) lockedMessage.textContent = access?.message || "Acesso não autorizado.";
+    const exit = lockedScreen?.querySelector("[data-tenant-denied-exit]");
+    if (exit) exit.setAttribute("href", deniedAccessRoute(access?.code));
     show(lockedScreen, "flex");
     return false;
   }

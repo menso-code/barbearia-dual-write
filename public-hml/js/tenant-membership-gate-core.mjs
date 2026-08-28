@@ -4,6 +4,19 @@ export const TENANT_PAGE_ROLES = Object.freeze({
   ADMIN: "ADMIN",
 });
 
+const DENIED_ACCESS_REASONS = new Set([
+  "MEMBERSHIP_MISSING",
+  "MEMBERSHIP_INACTIVE",
+  "ROLE_INSUFFICIENT",
+  "TENANT_NOT_READY",
+  "MEMBERSHIP_UNAVAILABLE",
+]);
+
+export function deniedAccessRoute(code) {
+  const reason = DENIED_ACCESS_REASONS.has(code) ? code : "MEMBERSHIP_UNAVAILABLE";
+  return `access-denied.html?reason=${encodeURIComponent(reason)}`;
+}
+
 export function evaluateTenantPageAccess(access, requiredRole) {
   if (!access?.isAuthenticated) {
     return Object.freeze({ allowed: false, code: "UNAUTHENTICATED", message: "Faça login para continuar." });
@@ -17,7 +30,7 @@ export function evaluateTenantPageAccess(access, requiredRole) {
     return Object.freeze({
       allowed: false,
       code: "MEMBERSHIP_MISSING",
-      message: "Usuário não cadastrado neste estabelecimento.",
+      message: "Você ainda não possui cadastro nessa barbearia.",
     });
   }
 

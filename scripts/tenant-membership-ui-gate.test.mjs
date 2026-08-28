@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { evaluateTenantPageAccess } from "../public-hml/js/tenant-membership-gate-core.mjs";
+import { deniedAccessRoute, evaluateTenantPageAccess } from "../public-hml/js/tenant-membership-gate-core.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFile(new URL(path, root), "utf8");
@@ -19,7 +19,7 @@ test("membership ausente bloqueia antes do shell", () => {
   assert.deepEqual(evaluateTenantPageAccess(access({ membershipStatus: "MISSING", roles: [] }), "CLIENTE"), {
     allowed: false,
     code: "MEMBERSHIP_MISSING",
-    message: "Usuário não cadastrado neste estabelecimento.",
+    message: "Você ainda não possui cadastro nessa barbearia.",
   });
 });
 
@@ -94,4 +94,25 @@ test("gate não aceita tenantId, slug ou role do caller", async () => {
   assert.doesNotMatch(source, /slug\s*:/);
   assert.doesNotMatch(source, /options/);
   assert.doesNotMatch(source, /localStorage|sessionStorage/);
+});
+
+test("saída de acesso negado é pública e determinística", async () => {
+  assert.equal(deniedAccessRoute("MEMBERSHIP_MISSING"), "access-denied.html?reason=MEMBERSHIP_MISSING");
+  assert.equal(deniedAccessRoute("UNTRUSTED_REDIRECT"), "access-denied.html?reason=MEMBERSHIP_UNAVAILABLE");
+  const [app, admin, barber, account, denied, deniedJs, index] = await Promise.all([
+    read("public-hml/app.html"),
+    read("public-hml/admin.html"),
+    read("public-hml/barber.html"),
+    read("public-hml/account.html"),
+    read("public-hml/access-denied.html"),
+    read("public-hml/js/access-denied.js"),
+    read("public-hml/index.html"),
+  ]);
+  for (const source of [app, admin, barber, account]) {
+    assert.match(source, /data-tenant-denied-exit[^>]+href="access-denied\.html"/);
+  }
+  assert.doesNotMatch(denied, /onAuthStateChanged|app\.html|admin\.html|barber\.html|account\.html/);
+  assert.doesNotMatch(deniedJs, /location\.href|location\.assign|history\.back/);
+  assert.match(deniedJs, /signOut\(auth\)/);
+  assert.match(index, /window\.location\.href = "app\.html"/);
 });

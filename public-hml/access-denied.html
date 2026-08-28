@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Acesso restrito</title>
+  <meta name="theme-color" content="#080a09">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="app-shell">
+  <main class="locked-screen" style="display:flex;min-height:100vh">
+    <div class="card">
+      <h1>Acesso restrito</h1>
+      <p id="access-denied-message" style="color:var(--cinza);margin:14px 0 20px">Não foi possível validar seu acesso neste estabelecimento.</p>
+      <button class="btn btn-block" id="access-denied-logout" type="button">Sair e trocar de conta</button>
+    </div>
+  </main>
+  <script type="module" src="js/access-denied.js"></script>
+</body>
+</html>

@@ -118,7 +118,7 @@ test("proteção contra listeners duplicados é explícita", async () => {
 
 test("TenantContext rejeita segundo tenant na mesma sessão", async () => {
   const manager = createTenantContextManager({
-    legacyCompat: { tenantId: "tenant-a", slug: "studio-a", hostnames: ["a.example"] },
+    resolveHostname: async () => ({ kind: "ACTIVE", tenantId: "tenant-a", slug: "studio-a" }),
   });
   const first = await manager.initialize({ hostname: "a.example", mode: "production" });
   assert.equal(first.tenantId, "tenant-a");
@@ -170,6 +170,6 @@ test("compatibilidade fixa permanece somente nos adaptadores adiados", async () 
   ]);
   assert.doesNotMatch(firebaseConfig, /BARBEARIA_ATUAL_ID|BARBEARIA_ATUAL_SLUG|getBarbeariaAtual|getSlugBarbeariaAtual|\.\/tenant\.js/);
   assert.match(tenant, /BARBEARIA_PADRAO_ID/);
-  assert.match(context, /LEGACY_FIREBASE_COMPAT/);
+  assert.doesNotMatch(context, /LEGACY_FIREBASE_COMPAT|LEGACY_COMPAT_TENANT_/);
   assert.doesNotMatch(`${agenda}\n${app}`, /BARBEARIA_ATUAL_ID|BARBEARIA_PADRAO_ID/);
 });

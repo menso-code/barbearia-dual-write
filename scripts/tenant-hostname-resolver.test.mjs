@@ -56,7 +56,7 @@ test("UNKNOWN e UNAVAILABLE permanecem fail-closed", () => {
   }));
 });
 
-test("wiring registra callable confiável antes do bootstrap e preserva compatibilidades explícitas", async () => {
+test("wiring registra callable confiável antes do bootstrap e não mantém fallback de host", async () => {
   const root = new URL("../", import.meta.url);
   const read = (path) => readFile(new URL(path, root), "utf8");
   const [adapter, context, core, commands] = await Promise.all([
@@ -72,8 +72,7 @@ test("wiring registra callable confiável antes do bootstrap e preserva compatib
       < context.indexOf("export function initializeTenantContext"),
     "resolver deve ser registrado antes do bootstrap",
   );
-  assert.match(context, /barber-a01e7\.web\.app/);
-  assert.match(context, /barber-a01e7\.firebaseapp\.com/);
+  assert.doesNotMatch(context, /LEGACY_FIREBASE_COMPAT|barber-a01e7\.(?:web\.app|firebaseapp\.com)/);
   assert.match(context, /localhost/);
   assert.match(context, /127\.0\.0\.1/);
   assert.match(context, /redirectToCanonicalTenantHostname/);

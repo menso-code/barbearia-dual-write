@@ -34,47 +34,40 @@ const tenantId = "tenant-a";
 
 test("endpoint read-only resolve ACTIVE sem aceitar tenantId do cliente", async () => {
   const firestore = new ReadOnlyFirestore({
-    "tenant_slugs/estudioativo": { tenantId, status: "ACTIVE" },
-    [`barbearias/${tenantId}`]: { slug: "estudioativo", status: "ACTIVE" },
+    "tenant_hostnames/estudio.example": { tenantId },
+    [`barbearias/${tenantId}`]: { slug: "estudio-renamed", status: "ACTIVE" },
   });
   assert.deepEqual(await resolveTenantHostnameRequest({
     firestore,
-    data: { hostname: "estudioativo.goestudio.com.br" },
+    data: { hostname: "estudio.example" },
   }), {
     kind: "ACTIVE",
-    slug: "estudioativo",
+    hostname: "estudio.example",
+    slug: "estudio-renamed",
     tenantId,
   });
   await assert.rejects(
     resolveTenantHostnameRequest({
       firestore,
-      data: { hostname: "estudioativo.goestudio.com.br", tenantId: "tenant-b" },
+      data: { hostname: "estudio.example", tenantId: "tenant-b" },
     }),
     /Campos não permitidos/,
   );
 });
 
-test("endpoint preserva REDIRECT e falha fechado para UNKNOWN/UNAVAILABLE", async () => {
-  const redirectDb = new ReadOnlyFirestore({
-    "tenant_slugs/slugantigo": { tenantId, status: "REDIRECT", redirectToSlug: "slugnovo" },
-    "tenant_slugs/slugnovo": { tenantId, status: "ACTIVE" },
-  });
-  assert.deepEqual(await resolveTenantHostnameRequest({
-    firestore: redirectDb,
-    data: { hostname: "slugantigo.goestudio.com.br" },
-  }), { kind: "REDIRECT", slug: "slugantigo", redirectToSlug: "slugnovo" });
-
+test("endpoint falha fechado para hostname ausente e tenant indisponível", async () => {
   const unavailableDb = new ReadOnlyFirestore({
-    "tenant_slugs/estudioinativo": { tenantId, status: "RETIRED" },
+    "tenant_hostnames/estudio-inativo.example": { tenantId },
+    [`barbearias/${tenantId}`]: { slug: "estudio-inativo", status: "RETIRED" },
   });
   assert.deepEqual(await resolveTenantHostnameRequest({
     firestore: unavailableDb,
-    data: { hostname: "estudioinativo.goestudio.com.br" },
-  }), { kind: "UNAVAILABLE", slug: "estudioinativo" });
+    data: { hostname: "estudio-inativo.example" },
+  }), { kind: "UNAVAILABLE", hostname: "estudio-inativo.example" });
   assert.deepEqual(await resolveTenantHostnameRequest({
     firestore: unavailableDb,
-    data: { hostname: "desconhecido.goestudio.com.br" },
-  }), { kind: "NOT_FOUND", slug: "desconhecido" });
+    data: { hostname: "desconhecido.example" },
+  }), { kind: "NOT_FOUND" });
 });
 
 test("endpoint não entra no dispatcher operacional nem possui efeitos de escrita", async () => {

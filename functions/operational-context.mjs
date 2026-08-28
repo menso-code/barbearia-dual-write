@@ -11,7 +11,6 @@ import {
 } from "./tenant-slug.mjs";
 
 export const ANTUNES_TENANT_ID = "tnt_80b2fda7ad644a1dbeff050aa8e0d595";
-export const ANTUNES_TENANT_SLUG = "antunes";
 
 export const OPERATIONAL_CONTEXT_MODES = Object.freeze({
   ANTUNES_DUAL_WRITE: "ANTUNES_DUAL_WRITE",
@@ -116,13 +115,6 @@ const FORBIDDEN_CLIENT_KEYS = new Set([
   "tenantId", "tenant_id", "path", "documentPath", "collectionPath",
   "legacyMode", "tenantMode", "writeMode", "write_mode",
 ]);
-const LEGACY_FIREBASE_HOSTS = new Map([
-  ["barber-a01e7.web.app", "barber-a01e7"],
-  ["barber-a01e7.firebaseapp.com", "barber-a01e7"],
-  ["teste-483f6.web.app", "teste-483f6"],
-  ["teste-483f6.firebaseapp.com", "teste-483f6"],
-]);
-
 export class OperationalContextError extends Error {
   constructor(code, message) {
     super(message);
@@ -218,12 +210,7 @@ async function resolveBySlug(db, slug) {
   return { tenantId: resolution.tenantId, slug, source: "SLUG" };
 }
 
-async function resolveByHostname(db, hostname, projectId) {
-  const legacyProject = LEGACY_FIREBASE_HOSTS.get(hostname);
-  if (legacyProject) {
-    if (legacyProject !== projectId) fail("TENANT_NOT_FOUND", "Estabelecimento não encontrado.");
-    return { tenantId: ANTUNES_TENANT_ID, slug: ANTUNES_TENANT_SLUG, source: "LEGACY_FIREBASE_HOST" };
-  }
+async function resolveByHostname(db, hostname) {
   const resolution = await resolveGoEstudioHostname({ db, hostname });
   if (resolution.kind === HOSTNAME_RESOLUTION_KINDS.NOT_FOUND) {
     fail("TENANT_NOT_FOUND", "Estabelecimento não encontrado.");
@@ -231,7 +218,7 @@ async function resolveByHostname(db, hostname, projectId) {
   if (resolution.kind !== HOSTNAME_RESOLUTION_KINDS.ACTIVE || !resolution.tenantId || !resolution.slug) {
     fail("TENANT_UNAVAILABLE", "Estabelecimento indisponível.");
   }
-  return { tenantId: resolution.tenantId, slug: resolution.slug, source: "HOSTNAME" };
+  return { tenantId: resolution.tenantId, slug: resolution.slug, source: "HOSTNAME_INDEX" };
 }
 
 function memberRoles(member) {
@@ -283,7 +270,7 @@ export async function resolveOperationalContext({ db, projectId, authUid: rawAut
   }
 
   const resolved = locator.type === "hostname"
-    ? await resolveByHostname(db, locator.value, projectId)
+    ? await resolveByHostname(db, locator.value)
     : await resolveBySlug(db, locator.value);
   const requiredRole = ROLE_BY_COMMAND.get(command) || null;
   const isAntunes = resolved.tenantId === ANTUNES_TENANT_ID;

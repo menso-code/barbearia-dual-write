@@ -1,11 +1,6 @@
-import {
-  TENANT_SLUG_STATUSES,
-  TenantSlugError,
-  normalizeTenantSlug,
-  resolveTenantSlug,
-} from "./tenant-slug.mjs";
+import { TENANT_SLUG_STATUSES, normalizeTenantSlug } from "./tenant-slug.mjs";
 
-export const GOESTUDIO_PUBLIC_BASE_DOMAINS = Object.freeze(["goestudio.com.br"]);
+export const HOSTNAME_INDEX_COLLECTION = "tenant_hostnames";
 export const HOSTNAME_RESOLUTION_KINDS = Object.freeze({
   ACTIVE: "ACTIVE",
   REDIRECT: "REDIRECT",
@@ -42,25 +37,8 @@ function normalizeHostnameInput(value) {
   return hostname;
 }
 
-export function parseGoEstudioTenantHostname(value) {
-  const hostname = normalizeHostnameInput(value);
-  const baseDomain = GOESTUDIO_PUBLIC_BASE_DOMAINS.find(
-    (candidate) => hostname.endsWith(`.${candidate}`),
-  );
-  if (!baseDomain) fail("BASE_DOMAIN_NOT_ALLOWED");
-
-  const subdomain = hostname.slice(0, -(baseDomain.length + 1));
-  if (!subdomain) fail("ROOT_DOMAIN_NOT_TENANT");
-  if (subdomain.includes(".")) fail("MULTI_LEVEL_SUBDOMAIN");
-
-  let slug;
-  try {
-    slug = normalizeTenantSlug(subdomain);
-  } catch (cause) {
-    fail(cause?.code === "RESERVED_SLUG" ? "RESERVED_SUBDOMAIN" : "INVALID_SUBDOMAIN");
-  }
-  if (slug !== subdomain) fail("NON_CANONICAL_SUBDOMAIN");
-  return { hostname, baseDomain, slug };
+export function hostnameIndexPath(value) {
+  return `${HOSTNAME_INDEX_COLLECTION}/${normalizeHostnameInput(value)}`;
 }
 
 export function slugTenantCacheKey(slug) {
@@ -73,27 +51,9 @@ export function tenantIdentityCacheKey(tenantId) {
   return `tenant:${normalizedTenantId}:identity`;
 }
 
-function slugFailureResult(error, slug) {
-  if (!(error instanceof TenantSlugError)) throw error;
-  if (error.code === "SLUG_NOT_FOUND") {
-    return { kind: HOSTNAME_RESOLUTION_KINDS.NOT_FOUND, slug };
-  }
-  if ([
-    "SLUG_RETIRED",
-    "SLUG_NOT_ACTIVE",
-    "TENANT_SLUG_MISMATCH",
-    "SLUG_REDIRECT_LOOP",
-    "SLUG_REDIRECT_INVALID",
-  ].includes(error.code)) {
-    return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, slug };
-  }
-  throw error;
-}
-
 export async function resolveGoEstudioHostname({ db, hostname }) {
-  let parsed;
   try {
-    parsed = parseGoEstudioTenantHostname(hostname);
+    hostname = normalizeHostnameInput(hostname);
   } catch (error) {
     if (error instanceof HostnameResolutionError) {
       return { kind: HOSTNAME_RESOLUTION_KINDS.NOT_FOUND };
@@ -101,29 +61,19 @@ export async function resolveGoEstudioHostname({ db, hostname }) {
     throw error;
   }
 
-  const { slug } = parsed;
-  let slugResolution;
-  try {
-    slugResolution = await resolveTenantSlug({ db, slug });
-  } catch (error) {
-    return slugFailureResult(error, slug);
-  }
-
-  if (slugResolution.status === TENANT_SLUG_STATUSES.REDIRECT) {
-    return {
-      kind: HOSTNAME_RESOLUTION_KINDS.REDIRECT,
-      slug,
-      redirectToSlug: slugResolution.redirectToSlug,
-    };
-  }
-
-  const tenantId = slugResolution.tenantId;
+  const hostnameSnapshot = await db.doc(hostnameIndexPath(hostname)).get();
+  if (!hostnameSnapshot.exists) return { kind: HOSTNAME_RESOLUTION_KINDS.NOT_FOUND };
+  const hostnameIndex = hostnameSnapshot.data();
+  const tenantId = String(hostnameIndex?.tenantId ?? "").trim();
+  if (!tenantId || tenantId.includes("/")) return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, hostname };
   const tenantSnapshot = await db.doc(`barbearias/${tenantId}`).get();
-  if (!tenantSnapshot.exists) return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, slug };
+  if (!tenantSnapshot.exists) return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, hostname };
   const tenant = tenantSnapshot.data();
-  if (tenant?.slug !== slug || tenant?.status !== TENANT_SLUG_STATUSES.ACTIVE) {
-    return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, slug };
+  if (tenant?.status !== TENANT_SLUG_STATUSES.ACTIVE) {
+    return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, hostname };
   }
+  let slug;
+  try { slug = normalizeTenantSlug(tenant.slug); } catch { return { kind: HOSTNAME_RESOLUTION_KINDS.UNAVAILABLE, hostname }; }
 
-  return { kind: HOSTNAME_RESOLUTION_KINDS.ACTIVE, slug, tenantId };
+  return { kind: HOSTNAME_RESOLUTION_KINDS.ACTIVE, hostname, tenantId, slug };
 }
